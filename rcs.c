@@ -2214,13 +2214,17 @@ void out_loading_template()
 void show_usage()
 {
     printf(
-        "Hi! I'm RCS modeler in FINAL [frcs]\n\n"
-        "--options--\n"
-        "-t : out template\n"
-        "-l : out step_disp template\n"
-        "-b : beam -> roller  column -> pin\n"
-        "-s : write loading step\n"
-        "-f : full model \n"
+        "Hi! I'm RCS modeler in FINAL. [frcs]\n\n"
+        "Enter a command\n"
+        "------------------------------------------\n"
+        "| frcs [input file] [options] [argument] |\n"
+        "------------------------------------------\n\n"
+        "[options]\n"
+        "-t      : out template\n"
+        "-l      : out step-disp template\n"
+        "-b      : beam -> roller , column -> pin\n"
+        "-s [arg]: write loading step\n"
+        "-f      : full model \n"
     );
 }
 
