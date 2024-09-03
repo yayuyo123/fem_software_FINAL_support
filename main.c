@@ -1,7 +1,8 @@
 #include <stdio.h>
+#include <string.h>
 
 #define DATA_NUMBER 1024
-#define SET_DATA_MAX 24
+#define SET_DATA_MAX 64
 
 struct GraphData
 {
@@ -13,59 +14,69 @@ struct GraphData
 
 struct GraphData graphDate[SET_DATA_MAX];
 
+/*
+ *
+ */
+
+
 int load_fgg(const char *inputFileName){
 
-    int set_data_num = 0;
+    printf("in load_fgg\n");
+
+    int reachedEOF = 0; //1:Yes, 0:No
     int result;
     char ch;
 
     FILE *file = fopen(inputFileName,"r");
     if(file == NULL){
         perror("File opening failed");
-        return 0;
+        return reachedEOF;
     }
 
-    for(int j = 0; j <= SET_DATA_MAX; j++){
+    for(int j = 0; j < SET_DATA_MAX; j++){
 
-        result = fscanf(file, "%d", &graphDate[j].dataNum);
+        char buffer[256];
+
+        if(fgets(buffer, sizeof(buffer), file) == NULL){
+            printf("reached EOF\n");
+            reachedEOF = 1;
+            break;
+        }
+
+        result = sscanf(buffer, "%d", &graphDate[j].dataNum);
         if(result != 1){break;}
 
         fscanf(file, "%23s", graphDate[j].head);
-        while((ch = fgetc(file)) != '\n'){}
+        printf("%s\n",graphDate[j].head);
+        while((ch = fgetc(file)) != '\n'){/*printf("!\n");*/}
         for(int i = 0; i <= graphDate[j].dataNum; i++){
             fscanf(file, "%s %s", graphDate[j].data1[i], graphDate[j].data2[i]);
         }
         while((ch = fgetc(file)) != '\n' && ch != EOF){}
-        set_data_num++;
-
-        /*
-        printf("num : %4d head : %s\n", graphDate[j].dataNum, graphDate[j].head);
-        for(int i = 0; i <= graphDate[j].dataNum; i++){
-            printf("data1 : %s data2 : %s\n", graphDate[j].data1[i], graphDate[j].data2[i]);
-        }
-        */
     }
 
     fclose(file);
-    return set_data_num;
+    return reachedEOF;
 }
 
-void print_csv(const char *outputFileName, int setDataNum){
+void print_csv(const char *outputFileName){
     
+    printf("in print_csv\n");
+
     FILE *outputFile = fopen(outputFileName, "w");
     if(outputFile == NULL){
         perror("File opening failed");
         return ;
     }
 
-    for(int i = 0; i < setDataNum; i++){
+    for(int i = 0; i < SET_DATA_MAX; i++){
         fprintf(outputFile, "%s,", graphDate[i].head);
     }
     fprintf(outputFile,"\n");
 
     for(int j = 0; j <= graphDate[0].dataNum; j++){
         fprintf(outputFile, "%s,", graphDate[0].data1[j]);
-        for(int i = 0; i < setDataNum; i++){
+        for(int i = 0; i < SET_DATA_MAX; i++){
             fprintf(outputFile, "%s,", graphDate[i].data2[j]);
         }
         fprintf(outputFile,"\n");
@@ -75,15 +86,16 @@ void print_csv(const char *outputFileName, int setDataNum){
 
 int main(){
 
-    int set_data_num = load_fgg("data.fgg");
-    if(set_data_num <= 0){
-        return 1;
-    }else if(set_data_num > SET_DATA_MAX){
-        printf("cant reached end of fgg file\n""SET_DATA_MAX"" is smaller\n");
+    char *inputFileName = "data.fgg";
+
+    printf("%s\n",inputFileName);
+    int reachedEOF = load_fgg(inputFileName);
+    if(reachedEOF == 0){
+        printf("catn reached end of file\n");
         return 1;
     }
-    printf("%d\n", set_data_num);
-    print_csv("out.txt", set_data_num);
+
+    print_csv("out.txt");
 
     return 0;
 }
