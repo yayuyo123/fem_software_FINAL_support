@@ -29,7 +29,7 @@ int load_fgg(const char *inputFileName){
 
     FILE *file = fopen(inputFileName,"r");
     if(file == NULL){
-        perror("File opening failed");
+        perror("error file opening failed");
         return reachedEOF;
     }
 
@@ -61,11 +61,9 @@ int load_fgg(const char *inputFileName){
 
 void print_csv(const char *outputFileName){
     
-    printf("in print_csv\n");
-
     FILE *outputFile = fopen(outputFileName, "w");
     if(outputFile == NULL){
-        perror("File opening failed");
+        perror("error file opening failed");
         return ;
     }
 
@@ -84,14 +82,19 @@ void print_csv(const char *outputFileName){
     fclose(outputFile);
 }
 
-int main(){
+int main(int argc, char *argv[]){
 
-    char *inputFileName = "data.fgg";
+    if(argc < 2){
+        printf("error input file name\n");
+        return 1;
+    }
 
-    printf("%s\n",inputFileName);
+    char *inputFileName = argv[1];
+    printf("input filename is \"%s\" \n", inputFileName);
+
     int reachedEOF = load_fgg(inputFileName);
     if(reachedEOF == 0){
-        printf("catn reached end of file\n");
+        printf("error cant reached end of file\n");
         return 1;
     }
 
