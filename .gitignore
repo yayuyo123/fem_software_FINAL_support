@@ -1,0 +1,13 @@
+# exe, oファイルは除く
+*.exe
+*.o
+*.ffi
+*.txt
+
+# フォルダ
+解析テスト/
+build/
+.vscode/
+
+input.txt
+要素タイプ.xlsx
