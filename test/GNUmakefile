@@ -1,46 +1,51 @@
-CFLAGS = -Wall -I../include
+# コンパイラとフラグ
 CC = gcc
+CFLAGS = -Wall -I../include
 
-# 出力フォルダを指定
+# 出力ディレクトリ
 OBJ_DIR = ../obj
+BIN_DIR = ../final_test
 
-# OBJ_DIRが存在しない場合に作成
-$(OBJ_DIR):
-	mkdir -p $(OBJ_DIR)
+# ソースファイル
+SRC = ../src
+TEST_SRC = .
 
-# json_parserをテストするプログラムのビルド
-test_json_parser: $(OBJ_DIR) $(OBJ_DIR)/test_json_parser.o $(OBJ_DIR)/json_parser.o $(OBJ_DIR)/parson.o
-	$(CC) $(CFLAGS) -o test_json_parser $(OBJ_DIR)/test_json_parser.o $(OBJ_DIR)/json_parser.o $(OBJ_DIR)/parson.o
+# 対象ファイル
+OBJS = $(OBJ_DIR)/json_parser.o $(OBJ_DIR)/parson.o $(OBJ_DIR)/function.o $(OBJ_DIR)/print_ffi.o
+TEST_OBJS = $(OBJ_DIR)/test_json_parser.o $(OBJ_DIR)/test_modeling_rcs.o $(OBJ_DIR)/test_print_ffi.o
+MODEL_OBJS = $(OBJ_DIR)/modeling_rcs.o
 
-# test_json_parser.o のコンパイル
-$(OBJ_DIR)/test_json_parser.o: test_json_parser.c
-	$(CC) $(CFLAGS) -c test_json_parser.c -o $(OBJ_DIR)/test_json_parser.o
+# ターゲット実行ファイル
+BIN_TEST_JSON = test_json_parser
+BIN_TEST_MODELING = $(BIN_DIR)/test_modeling_rcs
+BIN_TEST_PRINT = test_print_ffi
 
-# modeling_rcsをテストするプログラムのビルド
-test_modeling_rcs: $(OBJ_DIR) $(OBJ_DIR)/test_modeling_rcs.o $(OBJ_DIR)/modeling_rcs.o $(OBJ_DIR)/json_parser.o $(OBJ_DIR)/parson.o $(OBJ_DIR)/function.o $(OBJ_DIR)/print_ffi.o
-	$(CC) $(CFLAGS) -o ../final_test/test_modeling_rcs $(OBJ_DIR)/test_modeling_rcs.o $(OBJ_DIR)/modeling_rcs.o $(OBJ_DIR)/json_parser.o $(OBJ_DIR)/parson.o $(OBJ_DIR)/function.o $(OBJ_DIR)/print_ffi.o
+# デフォルトターゲット
+all: $(BIN_TEST_JSON) $(BIN_TEST_MODELING) $(BIN_TEST_PRINT)
 
-# test_modeling_rcs.o のコンパイル
-$(OBJ_DIR)/test_modeling_rcs.o: test_modeling_rcs.c
-	$(CC) $(CFLAGS) -c test_modeling_rcs.c -o $(OBJ_DIR)/test_modeling_rcs.o
+# ディレクトリを作成
+$(OBJ_DIR) $(BIN_DIR):
+	mkdir -p $@
 
-# modeling_rcs.o のコンパイル
-$(OBJ_DIR)/modeling_rcs.o: ../src/modeling_rcs.c
-	$(CC) $(CFLAGS) -c ../src/modeling_rcs.c -o $(OBJ_DIR)/modeling_rcs.o
+# 実行ファイル: test_json_parser
+$(BIN_TEST_JSON): $(OBJ_DIR) $(OBJS) $(OBJ_DIR)/test_json_parser.o
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_json_parser.o $(OBJS)
 
-# json_parser.o のコンパイル
-$(OBJ_DIR)/json_parser.o: ../src/json_parser.c
-	$(CC) $(CFLAGS) -c ../src/json_parser.c -o $(OBJ_DIR)/json_parser.o
+# 実行ファイル: test_modeling_rcs
+$(BIN_TEST_MODELING): $(OBJ_DIR) $(BIN_DIR) $(OBJS) $(MODEL_OBJS) $(OBJ_DIR)/test_modeling_rcs.o
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_modeling_rcs.o $(MODEL_OBJS) $(OBJS)
 
-# parson.o のコンパイル
-$(OBJ_DIR)/parson.o: ../src/parson.c
-	$(CC) $(CFLAGS) -c ../src/parson.c -o $(OBJ_DIR)/parson.o
+# 実行ファイル: test_print_ffi
+$(BIN_TEST_PRINT): $(OBJ_DIR) $(OBJS) $(OBJ_DIR)/test_print_ffi.o
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_print_ffi.o $(OBJS)
 
-# function.o のコンパイル
-$(OBJ_DIR)/function.o: ../src/function.c
-	$(CC) $(CFLAGS) -c ../src/function.c -o $(OBJ_DIR)/function.o
+# パターンルール: ソースファイルをオブジェクトファイルに変換
+$(OBJ_DIR)/%.o: $(SRC)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# print_ffi.o
-$(OBJ_DIR)/print_ffi.o: ../src/print_ffi.c
-	$(CC) $(CFLAGS) -c ../src/print_ffi.c -o $(OBJ_DIR)/print_ffi.o
+$(OBJ_DIR)/test_%.o: $(TEST_SRC)/test_%.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
+# クリーンアップ
+clean:
+	rm -rf $(OBJ_DIR) $(BIN_TEST_JSON) $(BIN_TEST_MODELING) $(BIN_TEST_PRINT)

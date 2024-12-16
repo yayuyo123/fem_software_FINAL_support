@@ -3,7 +3,7 @@
 
 #include<stdio.h>
 
-void print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, int load_node, char load_dir);
+int print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, int load_node, char load_dir);
 
 void print_NODE(FILE *f, int node, double coordinate_x, double coordinate_y, double coordinate_z);
 

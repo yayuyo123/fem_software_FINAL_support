@@ -1,19 +1,110 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
 #include "print_ffi.h"
 
-// 解析制御データ
-void print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, int load_node, char load_dir) {
+
+/**
+ * 指定した整数が指定した桁数以内であるかを判定する関数。
+ * 
+ * @param value 判定対象の整数値（正の数、負の数を含む）。
+ * @param digits 許容する桁数（正の整数で指定）。0以下を指定すると false を返す。
+ * @return 値が指定された桁数以内であれば true、そうでなければ false。
+ * 
+ * 桁数の計算には pow 関数を使用しており、digits 桁の最大値を 10^digits - 1 として計算。
+ * 負の値については絶対値を使用して判定する。
+ * 
+ * 例:
+ * - is_within_digits(12345, 5) => true
+ * - is_within_digits(-99999, 5) => true
+ * - is_within_digits(100000, 5) => false
+ */
+bool is_integer_within_digits(int value, int digits) {
+    if (digits <= 0) {
+        // 桁数が0以下の場合は無効（エラー）
+        return false;
+    }
+
+    // 桁数に対応する最大値
+    int max_value = (int)pow(10, digits) - 1;
+
+    // 絶対値が許容範囲内であることを確認
+    return abs(value) <= max_value;
+}
+
+/**
+ * 入力ファイルに先頭の解析制御データを書き込む
+ * 
+ * @param f ファイルストリーム
+ * @param last_step 実行する解析の最終ステップ
+ * @param disp_node 変位をモニターする節点番号
+ * @param disp_dir 変位をモニターする方向
+ * @param load_node 荷重をモニターする節点番号
+ * @param load_dir 荷重をモニターする方向
+ */
+int print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, int load_node, char load_dir) {
+
+    // ファイルポインタを確認
+    if (f == NULL) {
+        fprintf(stderr, "Error: Invalid file pointer\n");
+        return EXIT_FAILURE;
+    }
+
+    // last_stepの確認
     char last_step_str[6] = " ";
-    if (last_step != 0) {
-        sprintf(last_step_str, "%d", last_step);
+    if (last_step < 0) {
+        // 0未満の場合はエラー
+        perror("Error: 'last_step' < 0\n");
+        return EXIT_FAILURE;
+    } else if (last_step == 0) {
+        // 0の場合は空白を書き込む
+    } else if (last_step > 0) {
+        // 0より大きい場合、5桁以下であることを確認
+        if(is_integer_within_digits(last_step, 5) == true) {
+            sprintf(last_step_str, "%d", last_step);
+        } else {
+            perror("Error: 'last_step' exceeds 5 digits (greater than 99999)\n");
+            return EXIT_FAILURE;
+        }
     }
 
+    // disp_node
+    char disp_node_str[6] = " ";
+    if(disp_node < 0) {
+        // 0未満の場合はエラー
+        perror("Error: 'disp_node' < 0\n");
+        return EXIT_FAILURE;
+    } else if (disp_node == 0) {
+    } else if (disp_node > 0) {
+        // 5桁以内であることを確認
+        if(is_integer_within_digits(disp_node, 5) == true) {
+            sprintf(disp_node_str, "%d", disp_node);
+        } else {
+            perror("Error: 'disp_node' exceeds 5 digits (greater than 99999)\n");
+            return EXIT_FAILURE;
+        }
+    }
+
+    // load_node
     char load_node_str[6] = " ";
-    if (load_node != 0) {
-        sprintf(load_node_str, "%d", load_node);
+    if (load_node < 0) {
+        // 0未満の場合はエラー
+        perror("Error: 'load_node' < 0\n");
+        return EXIT_FAILURE;
+    } else if (load_node == 0) {
+        
+    } else if(load_node > 0) {
+        if(is_integer_within_digits(load_node, 5) == true) {
+            sprintf(load_node_str, "%d", load_node);
+        } else {
+            perror("Error: 'load_node' exceeds 5 digits (greater than 99999)\n");
+            return EXIT_FAILURE;
+        }
+        
     }
 
-
+    // disp_dir の確認
     int disp_direction_int = 0;
     if (disp_dir == 'x' || disp_dir == 'X') {
         disp_direction_int = 1;
@@ -22,9 +113,11 @@ void print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, i
     } else if (disp_dir == 'z' || disp_dir == 'Z') {
         disp_direction_int = 3;
     } else {
-        disp_direction_int = 0;
+        fprintf(stderr, "Error: 'load_dir' must be 'x', 'y', or 'z'\n");
+        return EXIT_FAILURE;
     }
 
+    // load_dir の確認
     int load_direction_int = 0;
     if (load_dir == 'x' || load_dir == 'X') {
         load_direction_int = 1;
@@ -33,19 +126,30 @@ void print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, i
     } else if (load_dir == 'z' || load_dir == 'Z') {
         load_direction_int = 3;
     } else {
-        load_direction_int = 0;
+        fprintf(stderr, "Error: 'load_dir' must be 'x', 'y', or 'z'\n");
+        return EXIT_FAILURE;
     }
 
-    fprintf(f,
-    "-------------------< FINAL version 11  Input data >---------------------\n"
-    "TITL :\n"
-    "EXEC :STEP (    1)-->(%5s)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
-    "LIST :ECHO=(0)  MODEL=(1)  RESULTS=(1)  MESSAGE=(2)  WARNING=(2)  (0:NO)\n"
-    "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
-    "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
-    "LOAD :APPLIED LOAD MONITOR NODE NO.(%5s)  DIR=(%1d)    FACTOR=\n"
-    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n",
-    last_step_str, disp_node, disp_direction_int, load_node_str, load_direction_int);
+    // ファイルへ書き込み - 戻り値は書き込んだ文字数
+    int result = fprintf(
+        f,
+        "-------------------< FINAL version 11  Input data >---------------------\n"
+        "TITL :\n"
+        "EXEC :STEP (    1)-->(%5s)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
+        "LIST :ECHO=(0)  MODEL=(1)  RESULTS=(1)  MESSAGE=(2)  WARNING=(2)  (0:NO)\n"
+        "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
+        "DISP :DISPLACEMENT MONITOR NODE NO.(%5s)  DIR=(%1d)    FACTOR=\n"
+        "LOAD :APPLIED LOAD MONITOR NODE NO.(%5s)  DIR=(%1d)    FACTOR=\n"
+        "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n",
+        last_step_str, disp_node_str, disp_direction_int, load_node_str, load_direction_int
+    );
+
+    // 書き込んだ文字数が0未満であればエラーを返す
+    if(result < 0) {
+        perror("Error writing to file\n");
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
 
 
