@@ -1,11 +1,62 @@
 #include <stdio.h>
 #include "print_ffi.h"
 
-void print_NODE(FILE *f, int node, const double coordinates[]) 
-{
-    fprintf(f, "NODE :(%5d)  X=%-10.2fY=%-10.2fZ=%-10.2fRC=(000000)\n", node, coordinates[0], coordinates[1], coordinates[2]);
+// 解析制御データ
+void print_head_template(FILE *f, int last_step, int disp_node, char disp_dir, int load_node, char load_dir) {
+    char last_step_str[6] = " ";
+    if (last_step != 0) {
+        sprintf(last_step_str, "%d", last_step);
+    }
+
+    char load_node_str[6] = " ";
+    if (load_node != 0) {
+        sprintf(load_node_str, "%d", load_node);
+    }
+
+
+    int disp_direction_int = 0;
+    if (disp_dir == 'x' || disp_dir == 'X') {
+        disp_direction_int = 1;
+    } else if (disp_dir == 'y' || disp_dir == 'Y') {
+        disp_direction_int = 2;
+    } else if (disp_dir == 'z' || disp_dir == 'Z') {
+        disp_direction_int = 3;
+    } else {
+        disp_direction_int = 0;
+    }
+
+    int load_direction_int = 0;
+    if (load_dir == 'x' || load_dir == 'X') {
+        load_direction_int = 1;
+    } else if (load_dir == 'y' || load_dir == 'Y') {
+        load_direction_int = 2;
+    } else if (load_dir == 'z' || load_dir == 'Z') {
+        load_direction_int = 3;
+    } else {
+        load_direction_int = 0;
+    }
+
+    fprintf(f,
+    "-------------------< FINAL version 11  Input data >---------------------\n"
+    "TITL :\n"
+    "EXEC :STEP (    1)-->(%5s)  ELASTIC=( ) CHECK=(1) POST=(1) RESTART=( )\n"
+    "LIST :ECHO=(0)  MODEL=(1)  RESULTS=(1)  MESSAGE=(2)  WARNING=(2)  (0:NO)\n"
+    "FILE :CONV=(2)  GRAPH=(2)  MONITOR=(2)  HISTORY=(1)  ELEMENT=(0)  (0:NO)\n"
+    "DISP :DISPLACEMENT MONITOR NODE NO.(%5d)  DIR=(%1d)    FACTOR=\n"
+    "LOAD :APPLIED LOAD MONITOR NODE NO.(%5s)  DIR=(%1d)    FACTOR=\n"
+    "UNIT :STRESS=(3) (1:kgf/cm**2  2:tf/m**2  3:N/mm**2=MPa)\n\n",
+    last_step_str, disp_node, disp_direction_int, load_node_str, load_direction_int);
 }
 
+
+// データ入力用関数 -----------------------------------------------------------------------------------------
+void print_NODE(FILE *f, int node, double coordinate_x, double coordinate_y, double coordinate_z) {
+    fprintf(f, "NODE :(%5d)  X=%-10.2fY=%-10.2fZ=%-10.2fRC=(000000)\n", node, coordinate_x, coordinate_y, coordinate_z);
+}
+
+/**
+ * dirは[0,1,2] -> [x,y,z]
+ */
 void print_COPYNODE(FILE *f, int start, int end, int interval, double meshLen, int increment, int set, int dir) 
 {
     char _end[6]      = " ";
@@ -40,22 +91,50 @@ void print_BEAM(FILE *f, int elmIndex, int nodeIndex, int nodePp, int typb)
     fprintf(f, "BEAM :(%5d)(%5d:%5d) TYPB(%3d)  Y-NODE(     )\n", elmIndex, nodeIndex, nodeIndex + nodePp, typb);
 }
 
-void print_QUAD(FILE *f, int elmIndex, int startNode, const int node_pp[], int dir1, int dir2, int TYPQ)
+void print_QUAD_increment(FILE *f, int elmIndex, int startNode, int node_pp[], int dir1, int dir2, int TYPQ)
 {
     fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", elmIndex, startNode, startNode + node_pp[dir1], startNode + node_pp[dir1] + node_pp[dir2], startNode + node_pp[dir2], TYPQ);
 }
 
-void print_HEXA(FILE *f, int EleIndex, int Node_S, const int nodePp[], int TYPH)
+void print_QUAD_node(FILE *f, int elmIndex, int node[], int typq)
 {
-    fprintf(f, "HEXA :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPH(%3d)\n", EleIndex, Node_S, Node_S + nodePp[0], Node_S + nodePp[0] + nodePp[1], Node_S + nodePp[1], Node_S + nodePp[2], Node_S + nodePp[0] + nodePp[2], Node_S + nodePp[0] + nodePp[1] + nodePp[2], Node_S + nodePp[1] + nodePp[2], TYPH);
+    fprintf(f, "QUAD :(%5d)(%5d:%5d:%5d:%5d) TYPQ(%3d)\n", elmIndex, node[0], node[1], node[2], node[3], typq);
 }
 
-void print_LINE(FILE *f, int elmIndex, int nodeIndex1, int nodeIndex3, int pp)
+/**
+ * nodeは節点番号を格納した配列、要素数は8。
+ */
+void print_HEXA_node(FILE *f, int element_index, int node[], int typh)
+{
+    fprintf(f, "HEXA :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPH(%3d)\n",
+        element_index, node[0], node[1], node[2], node[3], node[4], node[5], node[6], node[7], typh);
+}
+
+void print_HEXA_increment(FILE *f, int EleIndex, int Node_S, const int node_increment[], int TYPH)
+{
+    fprintf(f, "HEXA :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPH(%3d)\n",
+        EleIndex, Node_S, Node_S + node_increment[0], Node_S + node_increment[0] + node_increment[1], Node_S + node_increment[1], Node_S + node_increment[2], Node_S + node_increment[0] + node_increment[2], Node_S + node_increment[0] + node_increment[1] + node_increment[2], Node_S + node_increment[1] + node_increment[2], TYPH);
+}
+
+/**
+ * nodeは節点番号を格納した配列
+ */
+void print_LINE_node(FILE *f, int element_index, int node[])
+{
+    fprintf(f, "LINE :(%5d)(%5d:%5d:%5d:%5d) TYPL(  1)\n", element_index, node[0], node[1], node[2], node[3]);
+}
+
+void print_LINE_increment(FILE *f, int elmIndex, int nodeIndex1, int nodeIndex3, int pp)
 {
     fprintf(f, "LINE :(%5d)(%5d:%5d:%5d:%5d) TYPL(  1)\n", elmIndex, nodeIndex1, nodeIndex1 + pp, nodeIndex3, nodeIndex3 + pp);
 }
 
-void print_FILM(FILE *f, int elmIndex, int face1, int face2, const int nodePp[], int dir1, int dir2, int typf)
+void print_FILM_node(FILE *f, int element_index, int face1[], int face2[], int typf)
+{
+    fprintf(f, "FILM :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPF(%3d)\n", element_index, face1[0], face1[1], face1[2], face1[3], face2[0], face2[1], face2[2], face2[3], typf);
+}
+
+void print_FILM_increment(FILE *f, int elmIndex, int face1, int face2, const int nodePp[], int dir1, int dir2, int typf)
 {
     fprintf(f, "FILM :(%5d)(%5d:%5d:%5d:%5d:%5d:%5d:%5d:%5d) TYPF(%3d)\n", elmIndex, face1, face1 + nodePp[dir1], face1 + nodePp[dir1] + nodePp[dir2], face1 + nodePp[dir2], face2, face2 + nodePp[dir1], face2 + nodePp[dir1] + nodePp[dir2], face2 + nodePp[dir2], typf);
 }
@@ -75,22 +154,148 @@ void print_COPYELM(FILE *f, int elm_S, int elm_E, int elm_Inter, int elm_Inc, in
     fprintf(f, "COPY :ELM  S(%5d)-E(%5s)-I(%5s)   INC(%5d)-NINC(%5d)-SET(%4d)\n", elm_S, end, interval, elm_Inc, node_Inc, set);
 }
 
-void print_join(FILE *f, int s1, int e1, int i1, int s2, int e2, int i2)
-{
-    fprintf(f, "JOIN :NODE  S(%5d)-E(%5d)-I(%5d)  WITH  S(%5d)-E(%5d)-I(%5d)\n", s1, e1, i1, s2, e2, i2);
+/**
+ * @param f 
+ * @param typh 六面体要素番号
+ * @param mat_index 材料番号
+ * @param material c:コンクリート、s:鋼材
+ */
+void print_TYPH(FILE *f, int typh, int mat_index, char material) {
+    if(material == 'c' || material == 'C') {
+        fprintf(f, "TYPH :(%3d)  MATC(%3d)  AXIS(  0)\n", typh, mat_index);
+    } else if(material == 's' || material == 'S') {
+        fprintf(f, "TYPH :(%3d)  MATS(%3d)  AXIS(  0)\n", typh, mat_index);
+    }
 }
 
-void print_rest(FILE *f, int s, int e, int i, int rc, int inc, int set)
+void print_TYPB(FILE *f, int typb, int mats)
+{
+    fprintf(f, "TYPB :(%3d)  MATS(%3d)  AXIS(  0)  AREA=1       LY=        LZ=        :\n", typb, mats);
+}
+
+void print_TYPL(FILE *f, int typl, int matj, int axis)
+{
+    fprintf(f, "TYPL :(%3d)  MATJ(%3d)  AXIS(%3d)  THICKNESS=1.0      Z=(1) (1:N  2:S)\n", typl, matj, axis);
+}
+
+void print_TYPQ(FILE *f, int typq, int mats)
+{
+    fprintf(f, "TYPQ :(%3d)  MATS(%3d)  AXIS(  0)  THICKNESS=1.0     P-STRAIN=(0) (0:NO)\n", typq, mats);
+}
+
+void print_TYPF(FILE *f, int typf, int matj)
+{
+    fprintf(f, "TYPF :(%3d)  MATJ(%3d)  AXIS(  0)\n", typf, matj);
+}
+
+void print_AXIS(FILE *f, int axis)
+{
+    fprintf(f, "AXIS :(%3d)  TYPE=(1) (1:GLOBAL 2:ELEMENT 3:INPUT 4:CYLINDER 5:SPHERE)\n", axis);
+}
+
+void print_MATC(FILE *f, int matc)
+{
+    fprintf(f, "MATC :(%3d)  EC=2      (E+4) PR=0.2   FC=30     FT=      ALP=      (E-5)\n", matc);
+}
+
+void print_MATS(FILE *f, int mats)
+{
+    fprintf(f, "MATS :(%3d)  ES=2      (E+5) PR=0.3   SY=300    HR=0.01  ALP=      (E-5)\n", mats);
+}
+
+void print_MATJ(FILE *f, int matj)
+{
+    fprintf(f, "MATJ :(%3d)  TYPE=(4) (1:CRACK  2:BOND  3:GENERIC  4:RIGID  5:DASHPOT)\n", matj);
+}
+
+
+void print_REST(FILE *f, int s, int e, int i, int rc, int inc, int set)
 {
     fprintf(f, "REST :NODE  S(%5d)-E(%5d)-I(%5d)  RC=(%03d000) INC(%5d)-SET(%4d)\n", s, e, i, rc, inc, set);
 }
 
-void print_sub1(FILE *f, int s, int e, int i, int dir, int master, int mDir)
+void print_SUB1(FILE *f, int s, int e, int i, int dir, int master, int mDir)
 {
     fprintf(f, "SUB1 :NODE  S(%5d)-E(%5d)-I(%5d)-D(%1d)  M(%5d)-D(%1d)  F=1\n", s, e, i, dir, master, mDir);
 }
 
-void print_etyp(FILE *f, int s, int e, int i, int type, int inc, int set)
+void print_ETYP(FILE *f, int s, int e, int i, int type, int inc, int set)
 {
     fprintf(f, "ETYP :ELM  S(%5d)-E(%5d)-I(%5d)  TYPE(%3d)  INC(%5d)-SET(%4d)\n", s, e, i, type, inc, set);
+}
+
+void print_STEP(FILE *f, int step_num)
+{
+    fprintf(f, "STEP :UP TO NO.(%5d)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n", step_num);
+}
+
+/**
+ * 未完成
+ */
+void print_FN(FILE *f, int start_node, int end_node, int interval, double disp, char direction)
+{
+    char end_node_str[6] = " ";
+    char interval_str[6] = " ";
+    if (end_node != 0)
+    {
+        sprintf(end_node_str, "%d", end_node);
+    }
+    if (interval != 0)
+    {
+        sprintf(interval_str, "%d", interval);
+    }
+
+    int direction_int = 0;
+    if (direction == 'x' || direction == 'X') {
+        direction_int = 1;
+    } else if (direction == 'y' || direction == 'Y') {
+        direction_int = 2;
+    } else if (direction == 'z' || direction == 'Z') {
+        direction_int = 3;
+    } else {
+        direction_int = 0;
+    }
+
+    fprintf(f,"  FN :NODE  S(%5d)-E(%5s)-I(%5s)     DISP=%-9.2fDIR(%1d)\n", start_node, end_node_str, interval_str, disp, direction_int);
+}
+
+/**
+ * 六面体要素限定で要素一様荷重を与える。
+ * 
+ * @param f
+ * @param start_element
+ * @param end_element
+ * @param interval
+ * @param unit　単位面積当りの荷重
+ * @param direction　荷重の方向
+ * @param face 1: 下面, 2: 上面
+ */
+void print_UE(FILE *f, int start_element, int end_element, int interval, double unit, char direction, int face) {
+    int direction_int = 0;
+    if (direction == 'x' || direction == 'X') {
+        direction_int = 1;
+    } else if (direction == 'y' || direction == 'Y') {
+        direction_int = 2;
+    } else if (direction == 'z' || direction == 'Z') {
+        direction_int = 3;
+    } else {
+        direction_int = 0;
+    }
+
+    fprintf(f,"  UE :ELM   S(%5d)-E(%5d)-I(%5d)     UNIT=%-9.2fDIR(%1d)  FACE(%1d)\n", start_element, end_element, interval, unit, direction_int, face);
+}
+
+void print_OUT(FILE *f, int start_step, int end_step, int interval) {
+    char end_node_str[6] = " ";
+    char interval_str[6] = " ";
+    if (end_step != 0)
+    {
+        sprintf(end_node_str, "%d", end_step);
+    }
+    if (interval != 0)
+    {
+        sprintf(interval_str, "%d", interval);
+    }
+
+    fprintf(f," OUT :STEP  S(%5d)-E(%5s)-I(%5s) LEVEL=(3) (1:RESULT 2:POST 3:1+2)\n", start_step, end_node_str, interval_str);
 }

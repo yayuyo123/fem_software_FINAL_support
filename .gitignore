@@ -5,9 +5,11 @@
 *.txt
 
 # フォルダ
-解析テスト/
+final_test/
 build/
 .vscode/
+obj/
+parson/
 
 input.txt
 要素タイプ.xlsx
