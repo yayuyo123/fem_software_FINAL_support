@@ -63,7 +63,10 @@ JsonParserResult json_parser(const char *file_name, JsonData *jsonData);
 // JsonDataのメモリを解放する
 void free_json_data(JsonData *jsonData);
 
+// 動的インデントを出力する関数
+void print_indent(int level, int space_count);
+
 // JsonDataを表示する関数
-void print_Json_data(const JsonData *data);
+void print_json_data(const JsonData *data, int indent);
 
 #endif

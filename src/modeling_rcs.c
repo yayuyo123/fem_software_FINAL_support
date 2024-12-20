@@ -4,255 +4,28 @@
 #include "function.h"
 #include "modeling_rcs.h"
 #include "print_ffi.h"
+#include "modeling_data.h"
 
-// 境界点の要素数
-#define BOUNDARY_X_MAX 9
-#define BOUNDARY_Y_MAX 5
-#define BOUNDARY_Z_MAX 7
-
-/**
- * 
- */
-typedef enum {
-    DIR_X = 0,
-    DIR_Y = 1,
-    DIR_Z = 2,
-} Direction;
-
-/**
- * 境界点の情報を格納する配列の要素番号
- */
-typedef enum {
-    // x境界
-	BEAM_START_X             = 0,  // 梁端
-    JIG_BEAM_X               = 1,  // 治具、梁
-	BEAM_COLUMN_X            = 2,  // 梁、柱
-    COLUMN_ORTHOGONAL_BEAM_X = 3,
-	COLUMN_CENTER_X          = 4,  // x軸中心
-    ORTHOGONAL_BEAM_COLUMN_X = 5,
-	COLUMN_BEAM_X            = 6,  // 柱、梁
-	BEAM_JIG_X               = 7,  // 梁、治具
-	BEAM_END_X               = 8,  // 梁端
-    // y境界
-	COLUMN_SURFACE_START_Y   = 9,  // 柱の面
-    COLUMN_BEAM_Y            = 10,  // 柱、梁
-    CENTER_Y                 = 11,  // y軸中心
-    BEAM_COLUMN_Y            = 12,  // 梁、柱
-    COLUMN_SURFACE_END_Y     = 13,  // 柱の面 
-    // z境界
-	COLUMN_START_Z           = 14,  // 柱端
-    JIG_COLUMN_Z             = 15,  // 治具、柱
-    COLUMN_BEAM_Z            = 16,  // 柱、梁
-    CENTAR_Z                 = 17,  // z軸中心
-    BEAM_COLUMN_Z            = 18,  // 梁、柱
-    COLUMN_JIG_Z             = 19,  // 柱、治具
-    COLUMN_END_Z             = 20   // 柱端
-} BoundaryType;
-
-/**
- * NodeCoordinate構造体
- * 
- * 節点が存在する座標を格納する構造体。
- * 配列の最初の要素は0.0が格納される。
- * 
- * メンバ:
- * - node_num: 配列の要素数（節点の数）。
- * - coordinate: 各節点の座標値を格納する動的配列。
- *               配列のサイズは node_num に一致する。
- */
-typedef struct {
-    int node_num;     // 配列の要素数
-    double* coordinate;   // 動的配列
-} NodeCoordinate;
-
-// 節点番号、要素番号
-typedef struct {
-    int node;
-    int element;
-}NodeElement;
-
-// 主筋の位置を表す要素番号
-typedef struct {
-    int x;
-    int y;
-} RebarPositionIndex;
-
-// 主筋情報
-typedef struct {
-    int rebar_num;
-    RebarPositionIndex* positions;
-    NodeElement increment;
-    NodeElement occupied_indices;
-    NodeElement occupied_indices_single;  // 1本の主筋
-    NodeElement head;
-} RebarFiber;
-
-// 境界点の情報を格納する
-typedef struct {
-    NodeCoordinate x; // x方向の節点座標
-    NodeCoordinate y; // y方向の節点座標
-    NodeCoordinate z; // z方向の節点座標
-
-    // 境界点
-	int boundary_index[BOUNDARY_X_MAX + BOUNDARY_Y_MAX + BOUNDARY_Z_MAX];
-
-    // 柱
-    struct {
-        NodeElement increment[3];
-        NodeElement occupied_indices;
-        NodeElement head;
-    } column_hexa;
-
-    // 主筋
-    RebarFiber rebar_fiber;
-
-    // 主筋付着
-    struct {
-        NodeElement increment;
-        NodeElement occupied_indices;
-        NodeElement occupied_indices_single;
-        NodeElement head;
-    } rebar_line;
-
-    // 接合部鋼板
-    struct {
-        int increment_element[3];
-        NodeElement occupied_indices;
-        NodeElement head;
-    } joint_quad;
-
-    // 接合部付着
-    struct {
-        int occupied_indices;
-        int head;
-    } joint_film;
-    
-    // 梁
-    struct {
-        NodeElement increment[3];
-        NodeElement head;
-    } beam;
-
-    
-} ModelingData;
-
-// NodeCoordinateを初期化
-int initialize_node_coordinate(NodeCoordinate* node, int num_nodes) {
-    if (node == NULL) return 1;
-
-    node->node_num = num_nodes;
-    node->coordinate = (double*)malloc(num_nodes * sizeof(double));
-    if (node->coordinate == NULL) {
-        fprintf(stderr, "Memory allocation failed for coordinate array\n");
-        return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
-}
-
-// 主筋情報を初期化する関数
-int initialize_rebar_fiber(RebarFiber* rebar, int rebar_num) {
-    if (rebar == NULL || rebar_num <= 0) {
-        return EXIT_FAILURE; // 無効な引数エラー
-    }
-
-    rebar->rebar_num = rebar_num; // 主筋数を設定
-
-    // 主筋位置配列の動的確保
-    rebar->positions = (RebarPositionIndex*)malloc(rebar_num * sizeof(RebarPositionIndex));
-    if (rebar->positions == NULL) {
-        return EXIT_FAILURE; // メモリ確保エラー
-    }
-
-    // 初期化: 全ての位置を (0, 0) に設定
-    for (int i = 0; i < rebar_num; i++) {
-        rebar->positions[i].x = 0;
-        rebar->positions[i].y = 0;
-    }
-
-    return EXIT_SUCCESS;
-}
-
-// ModelingDataを新規作成して初期化
-ModelingData* initialize_modeling_data(int x_node_num, int y_node_num, int z_node_num, int rebar_num) {
-    // モデルデータ本体を動的確保
-    ModelingData* data = (ModelingData*)malloc(sizeof(ModelingData));
-    if (data == NULL) {
-        fprintf(stderr, "Memory allocation failed for ModelingData\n");
-        return NULL;
-    }
-
-    // 各軸のNodeCoordinateを初期化
-    if (initialize_node_coordinate(&data->x, x_node_num) != EXIT_SUCCESS ||
-        initialize_node_coordinate(&data->y, y_node_num) != EXIT_SUCCESS ||
-        initialize_node_coordinate(&data->z, z_node_num) != EXIT_SUCCESS) {
-        // 初期化失敗時は解放して終了
-        free(data);
-        return NULL;
-    }
-
-    // boundary_indexを初期化
-    for (int i = 0; i < BOUNDARY_X_MAX + BOUNDARY_Y_MAX + BOUNDARY_Z_MAX; i++) {
-        data->boundary_index[i] = -1; // -1で初期化
-    }
-
-    // 主筋情報を初期化
-    if (initialize_rebar_fiber(&data->rebar_fiber, rebar_num) != EXIT_SUCCESS) {
-        free(data->x.coordinate);
-        free(data->y.coordinate);
-        free(data->z.coordinate);
-        // 初期化失敗時の後処理
-        free(data);
-        return NULL;
-    }
-
-    return data;
-}
-
-// ModelingDataの解放関数
-void free_modeling_data(ModelingData* data) {
-    if (data != NULL) {
-        if (data->x.coordinate != NULL) {
-            free(data->x.coordinate);
-            data->x.coordinate = NULL;
-        }
-        if (data->y.coordinate != NULL) {
-            free(data->y.coordinate);
-            data->y.coordinate = NULL;
-        }
-        if (data->z.coordinate != NULL) {
-            free(data->z.coordinate);
-            data->z.coordinate = NULL;
-        }
-        if (data->rebar_fiber.positions != NULL) {
-            free(data->rebar_fiber.positions);
-            data->rebar_fiber.positions = NULL;
-        }
-        free(data);
-        data = NULL;
-    }
-}
-
-int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
+int make_modeling_data(ModelingData* modeling_data, JsonData *source_data) {
 
     // x軸方向の節点座標
-    modeling_data->x.coordinate[0] = 0;
-    for(int i = 1; i < modeling_data->x.node_num; i++) {
-        modeling_data->x.coordinate[i] = modeling_data->x.coordinate[i - 1] + source_data->mesh_x.lengths[i - 1];
+    modeling_data->x->coordinate[0] = 0;
+    for(int i = 1; i < modeling_data->x->node_num; i++) {
+        modeling_data->x->coordinate[i] = modeling_data->x->coordinate[i - 1] + source_data->mesh_x.lengths[i - 1];
     }
     // y方向
-    modeling_data->y.coordinate[0] = 0;
-    for(int i = 1; i < modeling_data->y.node_num; i++) {
-        modeling_data->y.coordinate[i] = modeling_data->y.coordinate[i - 1] + source_data->mesh_y.lengths[i - 1];
+    modeling_data->y->coordinate[0] = 0;
+    for(int i = 1; i < modeling_data->y->node_num; i++) {
+        modeling_data->y->coordinate[i] = modeling_data->y->coordinate[i - 1] + source_data->mesh_y.lengths[i - 1];
     }
     // z方向
-    modeling_data->z.coordinate[0] = 0;
-    for(int i = 1; i < modeling_data->z.node_num; i++) {
-        modeling_data->z.coordinate[i] = modeling_data->z.coordinate[i - 1] + source_data->mesh_z.lengths[i - 1];
+    modeling_data->z->coordinate[0] = 0;
+    for(int i = 1; i < modeling_data->z->node_num; i++) {
+        modeling_data->z->coordinate[i] = modeling_data->z->coordinate[i - 1] + source_data->mesh_z.lengths[i - 1];
     }
 
-
     const int jig_element_num = 1;  // 端部からの治具の要素数
-    float target_coordinate = 0.0;
+    double target_coordinate = 0.0;
 
     // 境界点
     // x軸方向 ------------------------------------------------------------
@@ -261,38 +34,38 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
     modeling_data->boundary_index[JIG_BEAM_X] = jig_element_num;
     // 梁、柱
     target_coordinate = source_data->column.center_x - source_data->column.depth / 2;
-    modeling_data->boundary_index[BEAM_COLUMN_X] = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, target_coordinate);
+    modeling_data->boundary_index[BEAM_COLUMN_X] = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, target_coordinate);
     // 柱、直交梁
     target_coordinate = source_data->column.center_x - source_data->beam.orthogonal_beam_width / 2;
-    modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, target_coordinate);
+    modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, target_coordinate);
     // x軸方向、柱芯
     target_coordinate = source_data->column.center_x;
-    modeling_data->boundary_index[COLUMN_CENTER_X] = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, target_coordinate);
+    modeling_data->boundary_index[COLUMN_CENTER_X] = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, target_coordinate);
     // 直交梁、柱
     target_coordinate = source_data->column.center_x + source_data->beam.orthogonal_beam_width / 2;
-    modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, target_coordinate);
+    modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, target_coordinate);
     // 柱、梁
     target_coordinate = source_data->column.center_x + source_data->column.depth / 2;
-    modeling_data->boundary_index[COLUMN_BEAM_X] = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, target_coordinate);
+    modeling_data->boundary_index[COLUMN_BEAM_X] = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, target_coordinate);
     // 梁、治具
-    modeling_data->boundary_index[BEAM_JIG_X] = modeling_data->x.node_num - 1 - jig_element_num;
+    modeling_data->boundary_index[BEAM_JIG_X] = modeling_data->x->node_num - 1 - jig_element_num;
     // 梁端
-    modeling_data->boundary_index[BEAM_END_X] = modeling_data->x.node_num - 1;
+    modeling_data->boundary_index[BEAM_END_X] = modeling_data->x->node_num - 1;
 
     // y軸方向 ---------------------------------------------------------------------
     // 柱の面
     modeling_data->boundary_index[COLUMN_SURFACE_START_Y] = 0;
     // 柱、梁
     target_coordinate = source_data->beam.center_y - source_data->beam.width / 2;
-    modeling_data->boundary_index[COLUMN_BEAM_Y] = find_index_double(modeling_data->y.coordinate, modeling_data->y.node_num, target_coordinate);
+    modeling_data->boundary_index[COLUMN_BEAM_Y] = find_index_double(modeling_data->y->coordinate, modeling_data->y->node_num, target_coordinate);
     // 梁芯
     target_coordinate = source_data->beam.center_y;
-    modeling_data->boundary_index[CENTER_Y] = find_index_double(modeling_data->y.coordinate, modeling_data->y.node_num, target_coordinate);
+    modeling_data->boundary_index[CENTER_Y] = find_index_double(modeling_data->y->coordinate, modeling_data->y->node_num, target_coordinate);
     // 梁、柱
     target_coordinate = source_data->beam.center_y + source_data->beam.width / 2;
-    modeling_data->boundary_index[BEAM_COLUMN_Y] = find_index_double(modeling_data->y.coordinate, modeling_data->y.node_num, target_coordinate);
+    modeling_data->boundary_index[BEAM_COLUMN_Y] = find_index_double(modeling_data->y->coordinate, modeling_data->y->node_num, target_coordinate);
     // 柱の面
-    modeling_data->boundary_index[COLUMN_SURFACE_END_Y] = modeling_data->y.node_num - 1;
+    modeling_data->boundary_index[COLUMN_SURFACE_END_Y] = modeling_data->y->node_num - 1;
 
     // z軸方向 ---------------------------------------------------------------------------
     // 柱端
@@ -301,17 +74,17 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
     modeling_data->boundary_index[JIG_COLUMN_Z] = jig_element_num;
     // 柱、梁
     target_coordinate = source_data->beam.center_z - source_data->beam.depth / 2;
-    modeling_data->boundary_index[COLUMN_BEAM_Z] = find_index_double(modeling_data->z.coordinate, modeling_data->z.node_num, target_coordinate);
+    modeling_data->boundary_index[COLUMN_BEAM_Z] = find_index_double(modeling_data->z->coordinate, modeling_data->z->node_num, target_coordinate);
     // 梁芯
     target_coordinate = source_data->beam.center_z;
-    modeling_data->boundary_index[CENTAR_Z] = find_index_double(modeling_data->z.coordinate, modeling_data->z.node_num, target_coordinate);
+    modeling_data->boundary_index[CENTAR_Z] = find_index_double(modeling_data->z->coordinate, modeling_data->z->node_num, target_coordinate);
     // 梁、柱
     target_coordinate = source_data->beam.center_z + source_data->beam.depth / 2;
-    modeling_data->boundary_index[BEAM_COLUMN_Z] = find_index_double(modeling_data->z.coordinate, modeling_data->z.node_num, target_coordinate);
+    modeling_data->boundary_index[BEAM_COLUMN_Z] = find_index_double(modeling_data->z->coordinate, modeling_data->z->node_num, target_coordinate);
     // 柱、治具
-    modeling_data->boundary_index[COLUMN_JIG_Z] = modeling_data->z.node_num - 1 - jig_element_num;
+    modeling_data->boundary_index[COLUMN_JIG_Z] = modeling_data->z->node_num - 1 - jig_element_num;
     // 柱端
-    modeling_data->boundary_index[COLUMN_END_Z] = modeling_data->z.node_num - 1;
+    modeling_data->boundary_index[COLUMN_END_Z] = modeling_data->z->node_num - 1;
 
     // 境界点のエラーチェック
     for(int i = 0; i < BOUNDARY_X_MAX + BOUNDARY_Y_MAX + BOUNDARY_Z_MAX; i++) {
@@ -320,7 +93,7 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
             printf("     : function - 'make_modeling_data'\n");
             printf("     : boundary type [ %d ]\n", i);
             printf("     : index [ %d ]\n", modeling_data->boundary_index[i]);
-            printf("     : coordinate [ %f ]\n", modeling_data->x.coordinate[modeling_data->boundary_index[i]]);
+            printf("     : coordinate [ %f ]\n", modeling_data->x->coordinate[modeling_data->boundary_index[i]]);
             return EXIT_FAILURE;
         }
     }
@@ -347,34 +120,34 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
     modeling_data->column_hexa.head.element = 1;
 
     // 主筋 -------------------------------------------------------------------------
-    if(modeling_data->rebar_fiber.rebar_num != source_data->rebar.rebar_num) {
+    if(modeling_data->rebar_fiber->rebar_num != source_data->rebar.rebar_num) {
         printf("rebar num not\n");
     }
     // x方向は柱までの長さを加算
     // y方向はそのまま
-    double pin_column = modeling_data->x.coordinate[modeling_data->boundary_index[BEAM_COLUMN_X]];
+    double pin_column = modeling_data->x->coordinate[modeling_data->boundary_index[BEAM_COLUMN_X]];
     for(int i = 0; i < source_data->rebar.rebar_num; i++) {
-        modeling_data->rebar_fiber.positions[i].x = find_index_double(modeling_data->x.coordinate, modeling_data->x.node_num, source_data->rebar.rebars[i].x + pin_column);
-        modeling_data->rebar_fiber.positions[i].y = find_index_double(modeling_data->y.coordinate, modeling_data->y.node_num, source_data->rebar.rebars[i].y);
+        modeling_data->rebar_fiber->positions[i].x = find_index_double(modeling_data->x->coordinate, modeling_data->x->node_num, source_data->rebar.rebars[i].x + pin_column);
+        modeling_data->rebar_fiber->positions[i].y = find_index_double(modeling_data->y->coordinate, modeling_data->y->node_num, source_data->rebar.rebars[i].y);
     }
     
-    modeling_data->rebar_fiber.increment.node = modeling_data->column_hexa.increment[DIR_Z].node;
-    modeling_data->rebar_fiber.increment.element = 1;
+    modeling_data->rebar_fiber->increment.node = modeling_data->column_hexa.increment[DIR_Z].node;
+    modeling_data->rebar_fiber->increment.element = 1;
 
-    modeling_data->rebar_fiber.occupied_indices_single.node =
+    modeling_data->rebar_fiber->occupied_indices_single.node =
         (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) *
-        modeling_data->rebar_fiber.increment.node;
-    modeling_data->rebar_fiber.occupied_indices_single.element =
+        modeling_data->rebar_fiber->increment.node;
+    modeling_data->rebar_fiber->occupied_indices_single.element =
         (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) *
-        modeling_data->rebar_fiber.increment.element;
+        modeling_data->rebar_fiber->increment.element;
 
-    modeling_data->rebar_fiber.occupied_indices.node =
-        modeling_data->rebar_fiber.occupied_indices_single.node * modeling_data->rebar_fiber.rebar_num;
-    modeling_data->rebar_fiber.occupied_indices.element =
-        modeling_data->rebar_fiber.occupied_indices_single.element * modeling_data->rebar_fiber.rebar_num;
+    modeling_data->rebar_fiber->occupied_indices.node =
+        modeling_data->rebar_fiber->occupied_indices_single.node * modeling_data->rebar_fiber->rebar_num;
+    modeling_data->rebar_fiber->occupied_indices.element =
+        modeling_data->rebar_fiber->occupied_indices_single.element * modeling_data->rebar_fiber->rebar_num;
 
-    modeling_data->rebar_fiber.head.node = modeling_data->column_hexa.occupied_indices.node + modeling_data->column_hexa.head.node;
-    modeling_data->rebar_fiber.head.element = modeling_data->column_hexa.occupied_indices.element + modeling_data->column_hexa.head.element;
+    modeling_data->rebar_fiber->head.node = modeling_data->column_hexa.occupied_indices.node + modeling_data->column_hexa.head.node;
+    modeling_data->rebar_fiber->head.element = modeling_data->column_hexa.occupied_indices.element + modeling_data->column_hexa.head.element;
 
     // ライン要素
     modeling_data->rebar_line.increment.node = 0;
@@ -387,11 +160,11 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
         (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) *
         modeling_data->rebar_line.increment.element;
 
-    modeling_data->rebar_line.occupied_indices.node = modeling_data->rebar_line.occupied_indices_single.node * modeling_data->rebar_fiber.rebar_num;
-    modeling_data->rebar_line.occupied_indices.element = modeling_data->rebar_line.occupied_indices_single.element * modeling_data->rebar_fiber.rebar_num;
+    modeling_data->rebar_line.occupied_indices.node = modeling_data->rebar_line.occupied_indices_single.node * modeling_data->rebar_fiber->rebar_num;
+    modeling_data->rebar_line.occupied_indices.element = modeling_data->rebar_line.occupied_indices_single.element * modeling_data->rebar_fiber->rebar_num;
     
-    modeling_data->rebar_line.head.node = modeling_data->rebar_fiber.head.node + modeling_data->rebar_fiber.occupied_indices.node;
-    modeling_data->rebar_line.head.element = modeling_data->rebar_fiber.head.element + modeling_data->rebar_fiber.occupied_indices.element;
+    modeling_data->rebar_line.head.node = modeling_data->rebar_fiber->head.node + modeling_data->rebar_fiber->occupied_indices.node;
+    modeling_data->rebar_line.head.element = modeling_data->rebar_fiber->head.element + modeling_data->rebar_fiber->occupied_indices.element;
 
     // 接合部 -------------------------------------------------------------------------
     // 節点は柱と同じ
@@ -408,7 +181,7 @@ int make_modeling_data(ModelingData *modeling_data, JsonData *source_data) {
         (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 2) * modeling_data->joint_quad.increment_element[DIR_Y] +
         (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 2) * modeling_data->joint_quad.increment_element[DIR_Z];
     
-    modeling_data->joint_quad.head.node = modeling_data->rebar_fiber.head.node + modeling_data->rebar_fiber.occupied_indices.node;
+    modeling_data->joint_quad.head.node = modeling_data->rebar_fiber->head.node + modeling_data->rebar_fiber->occupied_indices.node;
     modeling_data->joint_quad.head.element = modeling_data->rebar_line.head.element + modeling_data->rebar_line.occupied_indices.element;
 
     modeling_data->joint_film.head = modeling_data->joint_quad.head.element + modeling_data->joint_quad.occupied_indices.element;
@@ -671,7 +444,7 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     };
 
     // ポインタ配列に各方向を格納
-    NodeCoordinate* coordinates[3] = {&modeling_data->x, &modeling_data->y, &modeling_data->z};
+    NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
         modeling_data->column_hexa.increment[0].node,
@@ -705,10 +478,10 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     print_ETYP(f, start_elmemnt_index, end_element_index, element_increment[DIR_X], typh.column_jig, element_increment[DIR_Y], element_set);
     
     // かぶりコンクリート要素番号 x方向
-    int x_max = find_max_rebar_position_index(modeling_data->rebar_fiber.positions, modeling_data->rebar_fiber.rebar_num, DIR_X);
-    int x_min = find_min_rebar_position_index(modeling_data->rebar_fiber.positions, modeling_data->rebar_fiber.rebar_num, DIR_X);
+    int x_max = find_max_rebar_position_index(modeling_data->rebar_fiber->positions, modeling_data->rebar_fiber->rebar_num, DIR_X);
+    int x_min = find_min_rebar_position_index(modeling_data->rebar_fiber->positions, modeling_data->rebar_fiber->rebar_num, DIR_X);
     //int y_max = find_max_rebar_position_index(modeling_data->rebar_fiber.positions, modeling_data->rebar_fiber.rebar_num, DIR_Y);
-    int y_min = find_min_rebar_position_index(modeling_data->rebar_fiber.positions, modeling_data->rebar_fiber.rebar_num, DIR_Y);
+    int y_min = find_min_rebar_position_index(modeling_data->rebar_fiber->positions, modeling_data->rebar_fiber->rebar_num, DIR_Y);
 
     for(int i = modeling_data->boundary_index[COLUMN_SURFACE_START_Y]; i < y_min; i++) {
         start_elmemnt_index = modeling_data->column_hexa.head.element +
@@ -1259,34 +1032,34 @@ int search_column_node(int column_head, int increment[], int boundary_index[], i
  */
 void add_reber(FILE *f, ModelingData *modeling_data) {
     // ポインタ配列に各方向を格納
-    NodeCoordinate* coordinates[3] = {&modeling_data->x, &modeling_data->y, &modeling_data->z};
+    NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
         0,
         0,
-        modeling_data->rebar_fiber.increment.node
+        modeling_data->rebar_fiber->increment.node
     };
 
     
-    for(int i = 0; i < modeling_data->rebar_fiber.rebar_num; i++) {
+    for(int i = 0; i < modeling_data->rebar_fiber->rebar_num; i++) {
         fprintf(f, "---- fiber\n");
         int start[3] = {
-            modeling_data->rebar_fiber.positions[i].x,
-            modeling_data->rebar_fiber.positions[i].y,
+            modeling_data->rebar_fiber->positions[i].x,
+            modeling_data->rebar_fiber->positions[i].y,
             modeling_data->boundary_index[JIG_COLUMN_Z]
         };
         int end[3] = {
-            modeling_data->rebar_fiber.positions[i].x,
-            modeling_data->rebar_fiber.positions[i].y,
+            modeling_data->rebar_fiber->positions[i].x,
+            modeling_data->rebar_fiber->positions[i].y,
             modeling_data->boundary_index[COLUMN_JIG_Z]
         };
-        int start_node = modeling_data->rebar_fiber.head.node + i * modeling_data->rebar_fiber.occupied_indices_single.node;
-        int start_element = modeling_data->rebar_fiber.head.element + i * modeling_data->rebar_fiber.occupied_indices_single.element;
+        int start_node = modeling_data->rebar_fiber->head.node + i * modeling_data->rebar_fiber->occupied_indices_single.node;
+        int start_element = modeling_data->rebar_fiber->head.element + i * modeling_data->rebar_fiber->occupied_indices_single.element;
         // 最初の主筋の定義
         plot_node(f, coordinates, start_node, start, end, node_increment);
-        print_BEAM(f, start_element, start_node, modeling_data->rebar_fiber.increment.node, 1);
+        print_BEAM(f, start_element, start_node, modeling_data->rebar_fiber->increment.node, 1);
         int element_set = (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1);
-        print_COPYELM(f, start_element, 0, 0, modeling_data->rebar_fiber.increment.element, modeling_data->rebar_fiber.increment.node, element_set);
+        print_COPYELM(f, start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
         fprintf(f, "\n");
         // ライン要素
         fprintf(f, "---- line\n");
@@ -1298,9 +1071,9 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
         };
         int line_start_element = modeling_data->rebar_line.head.element + i * modeling_data->rebar_line.occupied_indices_single.element;
         int column_node = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
-        print_LINE_increment(f, line_start_element, start_node, column_node, modeling_data->rebar_fiber.increment.node);
+        print_LINE_increment(f, line_start_element, start_node, column_node, modeling_data->rebar_fiber->increment.node);
         element_set = (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_line.increment.element, modeling_data->rebar_fiber.increment.node, element_set);
+        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_line.increment.element, modeling_data->rebar_fiber->increment.node, element_set);
         start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z];
         end[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
         // 下境界面
@@ -1309,12 +1082,12 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
             (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_line.increment.element +
             i * modeling_data->rebar_line.occupied_indices_single.element;
         int line_node[4] = {
-            modeling_data->rebar_fiber.head.node +
-                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber.increment.node +
-                i * modeling_data->rebar_fiber.occupied_indices_single.node,
-            modeling_data->rebar_fiber.head.node +
-                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber.increment.node +
-                i * modeling_data->rebar_fiber.occupied_indices_single.node,
+            modeling_data->rebar_fiber->head.node +
+                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber->increment.node +
+                i * modeling_data->rebar_fiber->occupied_indices_single.node,
+            modeling_data->rebar_fiber->head.node +
+                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber->increment.node +
+                i * modeling_data->rebar_fiber->occupied_indices_single.node,
             search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]),
             search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z])
         };
@@ -1326,17 +1099,17 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
             modeling_data->rebar_line.head.element +
             (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_line.increment.element +
             i * modeling_data->rebar_line.occupied_indices_single.element;
-        line_node[0] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node;
-        line_node[1] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 2) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node,
+        line_node[0] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node;
+        line_node[1] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 2) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node,
         line_node[2] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
         line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
         print_LINE_node(f, line_start_element, line_node);
         element_set = (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber.increment.element, modeling_data->rebar_fiber.increment.node, element_set);
+        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
         // 上境界面
         start[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z];
         end[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z] + 2;
@@ -1344,12 +1117,12 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
             modeling_data->rebar_line.head.element +
             (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1) * modeling_data->rebar_line.increment.element +
             i * modeling_data->rebar_line.occupied_indices_single.element;
-        line_node[0] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node;
-        line_node[1] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node,
+        line_node[0] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node;
+        line_node[1] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node,
         line_node[2] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
         line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
         print_LINE_node(f, line_start_element, line_node);
@@ -1360,17 +1133,17 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
             modeling_data->rebar_line.head.element +
             (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_line.increment.element +
             i * modeling_data->rebar_line.occupied_indices_single.element;
-        line_node[0] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node;
-        line_node[1] = modeling_data->rebar_fiber.head.node +
-            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber.increment.node +
-            i * modeling_data->rebar_fiber.occupied_indices_single.node,
+        line_node[0] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node;
+        line_node[1] = modeling_data->rebar_fiber->head.node +
+            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber->increment.node +
+            i * modeling_data->rebar_fiber->occupied_indices_single.node,
         line_node[2] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
         line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
         print_LINE_node(f, line_start_element, line_node);
         element_set = (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[BEAM_COLUMN_Z] - 1);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber.increment.element, modeling_data->rebar_fiber.increment.node, element_set);
+        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
     }
     fprintf(f, "\n");
 }
@@ -1388,7 +1161,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
     };
 
     // ポインタ配列に各方向を格納
-    NodeCoordinate* coordinates[3] = {&modeling_data->x, &modeling_data->y, &modeling_data->z};
+    NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
         modeling_data->column_hexa.increment[DIR_X].node,
@@ -3014,7 +2787,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
 
 void add_beam_hexa(FILE *f, ModelingData *modeling_data) {
 // ポインタ配列に各方向を格納
-    NodeCoordinate* coordinates[3] = {&modeling_data->x, &modeling_data->y, &modeling_data->z};
+    NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
         modeling_data->beam.increment[0].node,
@@ -3059,7 +2832,7 @@ void add_beam_quad(FILE *f, ModelingData *modeling_data) {
 
     fprintf(f, "----beam quad\n");
     // ポインタ配列に各方向を格納
-    NodeCoordinate* coordinates[3] = {&modeling_data->x, &modeling_data->y, &modeling_data->z};
+    NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
         modeling_data->beam.increment[0].node,
@@ -3439,27 +3212,6 @@ void fix_cut_surface(FILE *f, ModelingData *modeling_data) {
     );
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 void get_load_node(ModelingData *modeling_data, int load_nodes[]) {
     load_nodes[0] =
         modeling_data->column_hexa.head.node +
@@ -3502,7 +3254,6 @@ void print_type_mat(FILE *f) {
     fprintf(f, "\n");
 }
 
-
 /**
  * 軸力導入するstepデータを書き込む
  */
@@ -3542,64 +3293,6 @@ void print_load_step(FILE *f, int load_nodes[]) {
     print_OUT(f, 2, 10, 1);
 }
 
-/**
- * print_modeling_data の補助関数
- * @brief NodeCoordinate 構造体の内容を表示する関数
- * 
- * @param node_coordinate 表示する対象の NodeCoordinate
- * @param label\\\ ラベル (x, y, z など)
- */
-void print_node_coordinate(const NodeCoordinate* node_coordinate, const char* label) {
-    printf("Coordinates for %s:\n", label);
-    printf("  Node Count: %d\n", node_coordinate->node_num);
-    printf("  Values: ");
-    for (int i = 0; i < node_coordinate->node_num; i++) {
-        printf("%.2f ", node_coordinate->coordinate[i]);
-    }
-    printf("\n");
-}
-
-/**
- * @brief ModelingData 構造体の内容を表示する関数
- * 
- * @param modeling_data 表示する対象の ModelingData
- */
-void print_modeling_data(const ModelingData* modeling_data) {
-    printf("====== ModelingData ======\n");
-
-    // x, y, z の座標を表示
-    print_node_coordinate(&modeling_data->x, "X");
-    print_node_coordinate(&modeling_data->y, "Y");
-    print_node_coordinate(&modeling_data->z, "Z");
-
-    // 境界インデックスを表示
-    printf("Boundary Indices:\n");
-    for (int i = 0; i < (BOUNDARY_X_MAX + BOUNDARY_Y_MAX + BOUNDARY_Z_MAX); i++) {
-        printf("  Index[%2d]: %d\n", i, modeling_data->boundary_index[i]);
-    }
-
-    // 柱
-    printf("Column\n");
-    printf("Increment\n");
-    printf("node x : %d\n", modeling_data->column_hexa.increment[DIR_X].node);
-    printf("node y : %d\n", modeling_data->column_hexa.increment[DIR_Y].node);
-    printf("node z : %d\n", modeling_data->column_hexa.increment[DIR_Z].node);
-    printf("element x : %d\n", modeling_data->column_hexa.increment[DIR_X].element);
-    printf("element y : %d\n", modeling_data->column_hexa.increment[DIR_Y].element);
-    printf("element z : %d\n", modeling_data->column_hexa.increment[DIR_Z].element);
-
-    printf("node    occupied indices : %d\n", modeling_data->column_hexa.occupied_indices.node);
-    printf("element occupied indices : %d\n", modeling_data->column_hexa.occupied_indices.element);
-
-    printf("node    head : %d\n", modeling_data->column_hexa.head.node);
-    printf("element head : %d\n", modeling_data->column_hexa.head.element);
-
-    printf("line oqu element : %d\n", modeling_data->rebar_line.occupied_indices_single.element);
-
-    printf("beam inc x, y, z : %d, %d, %d\n", modeling_data->beam.increment[0].node, modeling_data->beam.increment[1].node, modeling_data->beam.increment[2].node);
-
-    printf("==========================\n");
-}
 
 #define OUT_FILE_NAME  "out.ffi"
 /**
@@ -3637,13 +3330,11 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
     * 
     */
 
-    printf("\nin 'modeling rcs'\n");
-
     // JSONファイルの読み込み ---------------------------------------------------------------------
     JsonData* source_data = new_json_data();  // 初期化
 	JsonParserResult result = json_parser(inputFileName, source_data);  // データ読み込み
 	if (result == JSON_PARSER_SUCCESS) {
-		print_Json_data(source_data);
+		print_json_data(source_data, 0);
 	} else {
 		printf("Failed to parse JSON.\n");
         free_json_data(source_data);
@@ -3652,7 +3343,7 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
     
     // modeling_dataの作成 ---------------------------------------------------------------------
     // ModelingDataを初期化  原点(0)の分も要素数に加算
-    ModelingData* modeling_data = initialize_modeling_data(
+    ModelingData* modeling_data = create_modeling_data(
         source_data->mesh_x.mesh_num + 1,
         source_data->mesh_y.mesh_num + 1,
         source_data->mesh_z.mesh_num + 1,
@@ -3663,13 +3354,15 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
         free_json_data(source_data);
         return MODELING_RCS_ERROR;
     }
+    // デバッグ用
+    print_modeling_data(modeling_data);
 
     // データ格納 - source_dataはここで解放
     if(make_modeling_data(modeling_data, source_data) == EXIT_SUCCESS) {
         print_modeling_data(modeling_data);
         free_json_data(source_data);
     } else {
-        printf("FAILURE\n");
+        printf("Failed to input for ModelingData\n");
         free_json_data(source_data);
         free_modeling_data(modeling_data);
         return MODELING_RCS_ERROR;
@@ -3687,37 +3380,37 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
 
     // 強制変位を与える節点を取得
     int load_nodes[2] = {0};
-    get_load_node(modeling_data, load_nodes);
+    //get_load_node(modeling_data, load_nodes);
 
     // 解析制御データ
-    print_head_template(fout, 10, 1, 'x', 0, 'x');
+    //print_head_template(fout, 10, 1, 'x', 0, 'x');
     // 柱六面体
-    add_column_hexa(fout, modeling_data);
+    //add_column_hexa(fout, modeling_data);
     // 柱主筋
-    add_reber(fout, modeling_data);
+    //add_reber(fout, modeling_data);
     //接合部四辺形要素
-    add_joint_quad(fout, modeling_data);
+    //add_joint_quad(fout, modeling_data);
 
     //梁六面体要素
-    add_beam_hexa(fout, modeling_data);
+    //add_beam_hexa(fout, modeling_data);
 
     //梁四辺形要素
-    add_beam_quad(fout, modeling_data);
+    //add_beam_quad(fout, modeling_data);
     // 切断面拘束
 
     // 境界条件
-    set_pin(fout, modeling_data, 'b');
-    set_roller(fout, modeling_data, 'c');
-    fix_cut_surface(fout, modeling_data);
+    //set_pin(fout, modeling_data, 'b');
+    //set_roller(fout, modeling_data, 'c');
+    //fix_cut_surface(fout, modeling_data);
 
     // 要素タイプ、材料モデル
-    print_type_mat(fout);
+    //print_type_mat(fout);
 
     // 軸力導入
-    print_axial_force_step(fout, modeling_data);
+    //print_axial_force_step(fout, modeling_data);
 
     // 強制変位
-    print_load_step(fout, load_nodes);
+    //print_load_step(fout, load_nodes);
     // END
     fprintf(fout, "\nEND\n");
     fclose(fout);

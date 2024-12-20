@@ -272,67 +272,177 @@ void free_json_data(JsonData* json_data) {
     free(json_data);
 }
 
+
+
 /**
- * @brief JsonData構造体の内容を表示する関数
- *
- * @param data JsonData構造体へのポインタ
- * この関数はJsonData構造体内のcolumnとbeamセクションのすべてのフィールドを表示します。
- * 引数としてNULLが渡された場合、エラーメッセージを表示します。
+ * @brief 動的インデントを出力する関数
+ * 
+ * 指定されたレベル（階層）とスペース数に基づき、インデントを出力する。
+ * 
+ * @param level インデントの繰り返し回数（階層の深さ）
+ * @param space_count 1回のインデントで出力する空白の数（0以上の整数）
  */
-void print_Json_data(const JsonData *data) {
-	if (data == NULL) {
+void print_indent(int level, int space_count) {
+    if (space_count < 0) {
+        fprintf(stderr, "Error: space_count cannot be negative.\n");
+        return; // 負数が指定された場合はエラー
+    }
+
+    for (int i = 0; i < level; i++) {
+        for (int j = 0; j < space_count; j++) {
+            printf(" "); // 空白を出力
+        }
+    }
+}
+
+/**
+ * @brief JSON風にデータをフォーマットして出力する関数
+ * 
+ * JsonData構造体の内容をJSON風に整形して標準出力に表示する。
+ * 階層ごとのインデントを動的に指定でき、読みやすいフォーマットで表示する。
+ * 
+ * @param data 表示するJsonData構造体へのポインタ
+ *             - NULLが渡された場合、エラーメッセージを表示して終了。
+ * @param indent インデントとして使用する文字列（例: "    " や "\t" など）
+ *               - インデントは各階層ごとに繰り返されて表示される。
+ * 
+ * @note
+ * - Column、Beam、Rebar、Mesh（X, Y, Z）のデータを順にJSON風に出力する。
+ * - Rebarは配列として出力され、各要素は { "x": ..., "y": ... } の形式になる。
+ * - Meshの長さリストは配列として出力され、カンマ区切りで表示される。
+ * 
+ * @example
+ * JsonData data = {...};  // 適切に初期化されたデータ
+ * const char *indent = "    ";  // 4スペースのインデント
+ * print_json_data(&data, indent);
+ */
+void print_json_data(const JsonData *data, int indent) {
+    if (data == NULL) {
         printf("Error: Null pointer passed to print_json_data.\n");
         return;
     }
 
-	// columnの内容を表示
-    printf("Column:\n");
-    printf("  Span                 : %.2lf\n", data->column.span);
-    printf("  Width                : %.2lf\n", data->column.width);
-    printf("  Depth                : %.2lf\n", data->column.depth);
-    printf("  Center X             : %.2lf\n", data->column.center_x);
-    printf("  Center Y             : %.2lf\n", data->column.center_y);
-    printf("  Center Z             : %.2lf\n", data->column.center_z);
-    printf("  Compressive Strength : %.2lf\n", data->column.compressive_strength);
+    int level = 0;
+
+    printf("{\n");
+    level++;
+
+    // columnの内容を表示
+    print_indent(level, indent);
+    printf("\"Column\": {\n");
+    level++;
+    print_indent(level, indent);
+    printf("\"Span\": %.2lf,\n", data->column.span);
+    print_indent(level, indent);
+    printf("\"Width\": %.2lf,\n", data->column.width);
+    print_indent(level, indent);
+    printf("\"Depth\": %.2lf,\n", data->column.depth);
+    print_indent(level, indent);
+    printf("\"Center_X\": %.2lf,\n", data->column.center_x);
+    print_indent(level, indent);
+    printf("\"Center_Y\": %.2lf,\n", data->column.center_y);
+    print_indent(level, indent);
+    printf("\"Center_Z\": %.2lf,\n", data->column.center_z);
+    print_indent(level, indent);
+    printf("\"Compressive_Strength\": %.2lf\n", data->column.compressive_strength);
+    level--;
+    print_indent(level, indent);
+    printf("},\n");
 
     // beamの内容を表示
-    printf("Beam:\n");
-    printf("  Span                 : %.2lf\n", data->beam.span);
-    printf("  Width                : %.2lf\n", data->beam.width);
-    printf("  Depth                : %.2lf\n", data->beam.depth);
-    printf("  Center X             : %.2lf\n", data->beam.center_x);
-    printf("  Center Y             : %.2lf\n", data->beam.center_y);
-    printf("  Center Z             : %.2lf\n", data->beam.center_z);
-    printf("  Orthogonal Beam Width: %.2lf\n", data->beam.orthogonal_beam_width);
+    print_indent(level, indent);
+    printf("\"Beam\": {\n");
+    level++;
+    print_indent(level, indent);
+    printf("\"Span\": %.2lf,\n", data->beam.span);
+    print_indent(level, indent);
+    printf("\"Width\": %.2lf,\n", data->beam.width);
+    print_indent(level, indent);
+    printf("\"Depth\": %.2lf,\n", data->beam.depth);
+    print_indent(level, indent);
+    printf("\"Center_X\": %.2lf,\n", data->beam.center_x);
+    print_indent(level, indent);
+    printf("\"Center_Y\": %.2lf,\n", data->beam.center_y);
+    print_indent(level, indent);
+    printf("\"Center_Z\": %.2lf,\n", data->beam.center_z);
+    print_indent(level, indent);
+    printf("\"Orthogonal_Beam_Width\": %.2lf\n", data->beam.orthogonal_beam_width);
+    level--;
+    print_indent(level, indent);
+    printf("},\n");
 
-	// rebarの内容表示
-	printf("Rebar:\n");
-	for(int i = 0; i < data->rebar.rebar_num; i++) {
-		printf("  %2d : (x, y) = (%.2lf, %.2lf)\n", i + 1, data->rebar.rebars[i].x, data->rebar.rebars[i].y);
-	}
+    // rebarの内容を表示
+    print_indent(level, indent);
+    printf("\"Rebar\": [\n");
+    level++;
+    for (int i = 0; i < data->rebar.rebar_num; i++) {
+        print_indent(level, indent);
+        printf("{ \"x\": %.2lf, \"y\": %.2lf }", data->rebar.rebars[i].x, data->rebar.rebars[i].y);
+        if (i < data->rebar.rebar_num - 1) {
+            printf(",");
+        }
+        printf("\n");
+    }
+    level--;
+    print_indent(level, indent);
+    printf("],\n");
 
-    // meshの内容表示
-    printf("Mesh x:\n");
-    printf("  Mesh num : %2d\n", data->mesh_x.mesh_num);
-    printf("  length   : [");
-    for(int i = 0; i < data->mesh_x.mesh_num; i++) {
-        printf(" %.2lf,", data->mesh_x.lengths[i]);
+    // meshの内容を表示
+    print_indent(level, indent);
+    printf("\"Mesh_X\": {\n");
+    level++;
+    print_indent(level, indent);
+    printf("\"Mesh_Num\": %d,\n", data->mesh_x.mesh_num);
+    print_indent(level, indent);
+    printf("\"Lengths\": [");
+    for (int i = 0; i < data->mesh_x.mesh_num; i++) {
+        printf("%.2lf", data->mesh_x.lengths[i]);
+        if (i < data->mesh_x.mesh_num - 1) {
+            printf(", ");
+        }
     }
     printf("]\n");
+    level--;
+    print_indent(level, indent);
+    printf("},\n");
 
-    printf("Mesh y:\n");
-    printf("  Mesh num : %2d\n", data->mesh_y.mesh_num);
-    printf("  length   : [");
-    for(int i = 0; i < data->mesh_y.mesh_num; i++) {
-        printf(" %.2lf,", data->mesh_y.lengths[i]);
+    // 同様にMesh_YとMesh_Zも
+    print_indent(level, indent);
+    printf("\"Mesh_Y\": {\n");
+    level++;
+    print_indent(level, indent);
+    printf("\"Mesh_Num\": %d,\n", data->mesh_y.mesh_num);
+    print_indent(level, indent);
+    printf("\"Lengths\": [");
+    for (int i = 0; i < data->mesh_y.mesh_num; i++) {
+        printf("%.2lf", data->mesh_y.lengths[i]);
+        if (i < data->mesh_y.mesh_num - 1) {
+            printf(", ");
+        }
     }
     printf("]\n");
+    level--;
+    print_indent(level, indent);
+    printf("},\n");
 
-    printf("Mesh z:\n");
-    printf("  Mesh num : %2d\n", data->mesh_z.mesh_num);
-    printf("  length   : [");
-    for(int i = 0; i < data->mesh_z.mesh_num; i++) {
-        printf(" %.2lf,", data->mesh_z.lengths[i]);
+    print_indent(level, indent);
+    printf("\"Mesh_Z\": {\n");
+    level++;
+    print_indent(level, indent);
+    printf("\"Mesh_Num\": %d,\n", data->mesh_z.mesh_num);
+    print_indent(level, indent);
+    printf("\"Lengths\": [");
+    for (int i = 0; i < data->mesh_z.mesh_num; i++) {
+        printf("%.2lf", data->mesh_z.lengths[i]);
+        if (i < data->mesh_z.mesh_num - 1) {
+            printf(", ");
+        }
     }
     printf("]\n");
+    level--;
+    print_indent(level, indent);
+    printf("}\n");
+
+    level--;
+    printf("}\n");
 }

@@ -2,13 +2,14 @@
 #include "json_parser.h"
 
 void test_json_parser() {
+	const int indent = 4;  // 4スペース
 	// ファイル名が正しい場合
 	printf("file name is '../source.json'\n");
 	// 初期化
     JsonData* first_data = new_json_data();
 	JsonParserResult result = json_parser("../source.json", first_data);
 	if (result == JSON_PARSER_SUCCESS) {
-		print_Json_data(first_data);
+		print_json_data(first_data, indent);
 	} else {
 		printf("Failed to parse JSON.\n");
 	}
@@ -19,7 +20,7 @@ void test_json_parser() {
 	JsonData* second_data = new_json_data();
 	result = json_parser("", second_data);
 	if (result == JSON_PARSER_SUCCESS) {
-		print_Json_data(second_data);
+		print_json_data(second_data, indent);
 	} else {
 		printf("Failed to parse JSON.\n");
 	}
@@ -30,7 +31,7 @@ void test_json_parser() {
 	JsonData* third_data = new_json_data();
 	result = json_parser("abc", third_data);
 	if (result == JSON_PARSER_SUCCESS) {
-		print_Json_data(third_data);
+		print_json_data(third_data, indent);
 	} else {
 		printf("Failed to parse JSON.\n");
 	}
@@ -39,7 +40,7 @@ void test_json_parser() {
 	// 空データを渡した場合
 	printf("input blank data\n");
 	JsonData* blank_data = new_json_data();
-	print_Json_data(blank_data);
+	print_json_data(blank_data, indent);
 	free_json_data(blank_data);
 
 }
