@@ -5,7 +5,7 @@
 *.txt
 
 # フォルダ
-final_test/
+run_analysis/
 build/
 .vscode/
 obj/

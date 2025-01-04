@@ -6,6 +6,6 @@ typedef enum {
     MODELING_RCS_ERROR = 1     // 失敗
 } ModelingRcsResult;
 
-ModelingRcsResult modeling_rcs(const char *inputFileName);
+ModelingRcsResult modeling_rcs(const char *inputFileName, const char *outputFileName);
 
 #endif

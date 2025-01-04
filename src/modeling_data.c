@@ -363,7 +363,7 @@ void print_node_coordinate(const char* name, NodeCoordinate* node, int indent) {
     } else {
         printf("\"coordinate\": [");
         for (int i = 0; i < node->node_num; i++) {
-            printf("%lf", node->coordinate[i]);
+            printf("%.2lf", node->coordinate[i]);
             if (i < node->node_num - 1) printf(", ");
         }
         printf("]\n");

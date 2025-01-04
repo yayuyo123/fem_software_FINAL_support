@@ -6,6 +6,9 @@
 #include "print_ffi.h"
 #include "modeling_data.h"
 
+/**
+ * source_dataからモデリングに必要なデータを作成し、modeling_dayaに格納する
+ */
 int make_modeling_data(ModelingData* modeling_data, JsonData *source_data) {
 
     // x軸方向の節点座標
@@ -324,7 +327,14 @@ void generate_hexa(
 }
 
 /**
- * 柱、接合部の境界節点
+ * 節点、要素番号を算出する
+ */
+int calculate_index(int start, int increment[], int dir_x, int dir_y, int dir_z) {
+    return start + dir_x * increment[DIR_X] + dir_y * increment[DIR_Y] + dir_z * increment[DIR_Z];
+}
+
+/**
+ * 柱、接合部の境界節点を定義する
  * 
  * @param f
  * @param start_nede 対称とする面の左下節点番号
@@ -447,14 +457,14 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
-        modeling_data->column_hexa.increment[0].node,
-        modeling_data->column_hexa.increment[1].node,
-        modeling_data->column_hexa.increment[2].node
+        modeling_data->column_hexa.increment[DIR_X].node,
+        modeling_data->column_hexa.increment[DIR_Y].node,
+        modeling_data->column_hexa.increment[DIR_Z].node
     };
     int element_increment[3] = {
-        modeling_data->column_hexa.increment[0].element,
-        modeling_data->column_hexa.increment[1].element,
-        modeling_data->column_hexa.increment[2].element
+        modeling_data->column_hexa.increment[DIR_X].element,
+        modeling_data->column_hexa.increment[DIR_Y].element,
+        modeling_data->column_hexa.increment[DIR_Z].element
     };
 
     // 柱、下部 -----------------------------------------------------
@@ -469,7 +479,17 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         modeling_data->boundary_index[COLUMN_BEAM_Z]
     };
     fprintf(f, "----lower column\n");
-    generate_hexa(f, coordinates, modeling_data->column_hexa.head.node, modeling_data->column_hexa.head.element, start, end, node_increment, element_increment, typh.column);
+    generate_hexa(
+        f,
+        coordinates,
+        modeling_data->column_hexa.head.node,
+        modeling_data->column_hexa.head.element,
+        start,
+        end,
+        node_increment,
+        element_increment,
+        typh.column
+    );
     
     // 治具要素番号
     int start_elmemnt_index = modeling_data->column_hexa.head.element;
@@ -3297,9 +3317,9 @@ void print_load_step(FILE *f, int load_nodes[]) {
 #define OUT_FILE_NAME  "out.ffi"
 /**
  * @param inputFileName rcsモデリングデータのファイル名
- * @param 
+ * @param outputFileName
  */
-ModelingRcsResult modeling_rcs(const char *inputFileName) {
+ModelingRcsResult modeling_rcs(const char *inputFileName, const char *outputFileName) {
     /*名称
         source_data  : JSONファイルの入力データ
         modeling_data: モデリングに必要なデータ
@@ -3354,8 +3374,6 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
         free_json_data(source_data);
         return MODELING_RCS_ERROR;
     }
-    // デバッグ用
-    print_modeling_data(modeling_data);
 
     // データ格納 - source_dataはここで解放
     if(make_modeling_data(modeling_data, source_data) == EXIT_SUCCESS) {
@@ -3370,7 +3388,7 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
     
     // ffiの書き込み -----------------------------------------------------------------
     //ファイルオープン
-    FILE *fout = fopen(OUT_FILE_NAME,"w");
+    FILE *fout = fopen(outputFileName,"w");
     if(fout == NULL)
     {
         printf("ERROR: out.ffi cant open.\n");
@@ -3380,12 +3398,12 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
 
     // 強制変位を与える節点を取得
     int load_nodes[2] = {0};
-    //get_load_node(modeling_data, load_nodes);
+    get_load_node(modeling_data, load_nodes);
 
     // 解析制御データ
-    //print_head_template(fout, 10, 1, 'x', 0, 'x');
+    print_head_template(fout, 1, 1, 'x', 0, 'x');
     // 柱六面体
-    //add_column_hexa(fout, modeling_data);
+    add_column_hexa(fout, modeling_data);
     // 柱主筋
     //add_reber(fout, modeling_data);
     //接合部四辺形要素
@@ -3407,7 +3425,7 @@ ModelingRcsResult modeling_rcs(const char *inputFileName) {
     //print_type_mat(fout);
 
     // 軸力導入
-    //print_axial_force_step(fout, modeling_data);
+    print_axial_force_step(fout, modeling_data);
 
     // 強制変位
     //print_load_step(fout, load_nodes);
