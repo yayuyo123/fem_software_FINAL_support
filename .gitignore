@@ -6,11 +6,9 @@
 
 # フォルダ
 run_analysis/
-build/
 .vscode/
 obj/
 parson/
 bin/
 
 input.txt
-要素タイプ.xlsx

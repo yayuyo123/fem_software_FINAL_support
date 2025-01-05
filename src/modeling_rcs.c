@@ -686,7 +686,8 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         modeling_data->column_hexa.head.element +
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z]) * modeling_data->column_hexa.increment[2].element +
         (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1) * modeling_data->column_hexa.increment[DIR_Y].element;
-    fprintf(f, "\n----boundary beam element\n");
+    fprintf(f, "\n----boundary beam element\n"); 
+
     for(int i = start_elmemnt_index; i <= end_element_index;) {
         // 左側
         print_HEXA_increment(f, i, start_node_index, node_increment, typh.joint_inner);
@@ -961,9 +962,10 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     print_HEXA_increment(f, start_elmemnt_index, start_node_index, node_increment, typh.joint_inner);
     element_set = modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1;
     print_COPYELM(f, pre_element, start_elmemnt_index, start_elmemnt_index - pre_element, element_increment[DIR_X], node_increment[DIR_X], element_set);
+    int element_diff = element_set;
     element_set = modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1;
-    print_COPYELM(f, pre_element, pre_element + element_increment[DIR_X] * element_set, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
-    print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + element_increment[DIR_X] * element_set, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
+    print_COPYELM(f, pre_element, pre_element + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
+    print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
 
     // 外部要素、右
     node_increment[DIR_Z] = modeling_data->column_hexa.increment[0].node + 2 * modeling_data->column_hexa.increment[2].node;
@@ -984,10 +986,11 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     print_HEXA_increment(f, start_elmemnt_index, start_node_index, node_increment, typh.joint_inner);
     element_set = modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - 1;
     print_COPYELM(f, pre_element, start_elmemnt_index, start_elmemnt_index - pre_element, element_increment[DIR_X], node_increment[DIR_X], element_set);
+    element_diff = element_set;
     element_set = modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1;
-    print_COPYELM(f, pre_element, pre_element + element_increment[DIR_X] * element_set, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
-    print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + element_increment[DIR_X] * element_set, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
-    
+    print_COPYELM(f, pre_element, pre_element + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
+    print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
+
     // 接合部外部要素、要素番号
     // 左
     for(int i = modeling_data->boundary_index[COLUMN_SURFACE_START_Y]; i < modeling_data->boundary_index[COLUMN_BEAM_Y]; i++) {
@@ -3278,7 +3281,7 @@ void print_type_mat(FILE *f) {
  * 軸力導入するstepデータを書き込む
  */
 void print_axial_force_step(FILE *f, ModelingData *modeling_data) {
-    double unit = 6;
+    double unit = 10;
     print_STEP(f, 1);
 
     int element_index = modeling_data->column_hexa.head.element;
@@ -3311,6 +3314,14 @@ void print_load_step(FILE *f, int load_nodes[]) {
     print_FN(f, load_nodes[0], 0, 0, -10, 'x');
     print_FN(f, load_nodes[1], 0, 0, 10, 'x');
     print_OUT(f, 2, 10, 1);
+}
+
+
+void debug_step_print(FILE *f) {
+    fprintf(f, "REST :NODE  S(    1)-E(     )-I(     )  RC=(111111) INC(     )-SET(    )\n");
+    fprintf(f, "STEP :UP TO NO.(    1)   MAXIMUM LOAD INCREMENT=         CREEP=(0)(0:NO)\n");
+    fprintf(f, "  FN :NODE  S(    2)-E(     )-I(     )    FORCE=1        DIR(1)\n");
+    fprintf(f, " OUT :STEP  S(    1)-E(     )-I(     ) LEVEL=(1) (1:RESULT 2:POST 3:1+2)\n");
 }
 
 
@@ -3405,30 +3416,32 @@ ModelingRcsResult modeling_rcs(const char *inputFileName, const char *outputFile
     // 柱六面体
     add_column_hexa(fout, modeling_data);
     // 柱主筋
-    //add_reber(fout, modeling_data);
+    add_reber(fout, modeling_data);
     //接合部四辺形要素
-    //add_joint_quad(fout, modeling_data);
+    add_joint_quad(fout, modeling_data);
 
     //梁六面体要素
-    //add_beam_hexa(fout, modeling_data);
+    add_beam_hexa(fout, modeling_data);
 
     //梁四辺形要素
-    //add_beam_quad(fout, modeling_data);
+    add_beam_quad(fout, modeling_data);
+
     // 切断面拘束
+    fix_cut_surface(fout, modeling_data);
 
     // 境界条件
-    //set_pin(fout, modeling_data, 'b');
-    //set_roller(fout, modeling_data, 'c');
-    //fix_cut_surface(fout, modeling_data);
-
+    set_pin(fout, modeling_data, 'b');
+    set_roller(fout, modeling_data, 'c');
+    
     // 要素タイプ、材料モデル
-    //print_type_mat(fout);
+    print_type_mat(fout);
 
     // 軸力導入
     print_axial_force_step(fout, modeling_data);
 
     // 強制変位
-    //print_load_step(fout, load_nodes);
+    print_load_step(fout, load_nodes);
+
     // END
     fprintf(fout, "\nEND\n");
     fclose(fout);

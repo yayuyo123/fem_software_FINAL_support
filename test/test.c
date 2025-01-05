@@ -159,6 +159,9 @@ void test_head_template() {
 
 #include "modeling_rcs.h"
 
+/**
+ * 
+ */
 void test_modeling_rcs() {
 	modeling_rcs("../test/test.json", "../run_analysis/out.ffi");
 }

@@ -29,6 +29,10 @@ main: ./cli/main.c $(OBJECTS)
 test: clean $(OBJECTS)
 	$(CC) $(CFLAGS) -o $(BIN_DIR)/test ./test/main.c ./test/test.c $(OBJECTS)
 
+# モデリングを実行
+rcs: clean ./test/rcs.c $(OBJECTS)
+	$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ ./test/rcs.c $(OBJECTS)
+
 # パターンルール: ソースファイルをオブジェクトファイルに変換
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
