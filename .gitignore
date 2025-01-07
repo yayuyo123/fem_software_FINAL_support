@@ -10,5 +10,6 @@ run_analysis/
 obj/
 parson/
 bin/
+picture/
 
 input.txt

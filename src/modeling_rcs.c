@@ -309,19 +309,43 @@ void generate_hexa(
 ) {
     //節点定義
     plot_node(f, coordinates, start_node_index, start, end, node_increment);
-    int delt;
+    int delt = 0;
     //要素定義
     print_HEXA_increment(f, start_elm_index, start_node_index, node_increment, typh);
+
     //要素コピー
-    //x
-    print_COPYELM(f, start_elm_index, 0, 0, element_increment[0], node_increment[0], end[0] - start[0] - 1);
-    //y
-    delt = (end[0] - start[0] - 1) * element_increment[0];
-    print_COPYELM(f, start_elm_index, start_elm_index + delt, element_increment[0], element_increment[1], node_increment[1], end[1] - start[1] - 1);
-    //z
-    for(int i = 0; i < end[1] - start[1]; i++)
-    {
-        print_COPYELM(f, start_elm_index + element_increment[1] * i, start_elm_index + delt + element_increment[1] * i, element_increment[0], element_increment[2], node_increment[2], end[2] - start[2] - 1);
+    // x方向
+    int element_set_x = end[0] - start[0] - 1;
+    int element_set_y = end[1] - start[1] - 1;
+    int element_set_z = end[2] - start[2] - 1;
+    if(element_set_x > 0) {
+        delt = element_set_x * element_increment[0];
+        print_COPYELM(f, start_elm_index, 0, 0, element_increment[0], node_increment[0], element_set_x);
+    }
+
+    // y方向　
+    if(element_set_y > 0) {
+        if(element_set_x > 0) {
+            print_COPYELM(f, start_elm_index, start_elm_index + delt, element_increment[0], element_increment[1], node_increment[1], element_set_y);
+        } else {
+            delt = element_set_y * element_increment[1];
+            print_COPYELM(f, start_elm_index, 0, 0, element_increment[1], node_increment[1], element_set_y);
+        }
+    }
+
+    // z方向
+    if(element_set_z > 0) {
+        if(element_set_y > 0 && element_set_x > 0) {
+            for(int i = 0; i < end[1] - start[1]; i++) {
+                print_COPYELM(f, start_elm_index + element_increment[1] * i, start_elm_index + element_increment[1] * i + delt, element_increment[0], element_increment[2], node_increment[2], element_set_z);
+            }
+        } else if(element_set_x > 0) {
+            print_COPYELM(f, start_elm_index, start_elm_index + delt, element_increment[0], element_increment[2], node_increment[2], element_set_z);
+        } else if(element_set_y > 0) {
+            print_COPYELM(f, start_elm_index, start_elm_index + delt, element_increment[1], element_increment[2], node_increment[2], element_set_z);
+        } else {
+            print_COPYELM(f, start_elm_index, 0, 0, element_increment[2], node_increment[2], element_set_z);
+        }
     }
     fprintf(f, "\n");
 }
@@ -434,8 +458,17 @@ int find_min_rebar_position_index(RebarPositionIndex* position, int position_num
 
 /**
  * 上下柱コンクリートを作成後、接合部の上下境界面より内側を作成し、接合部上下境界面を作成する。
+ * 
+ * 上部 (節点定義 -> 要素定義 -> 要素番号定義)
+ * 下部 (節点定義 -> 要素定義 -> 要素番号定義)
+ * 接合部 (
+ *      上下端面を除いた部分 (generate_hexa)
+ * )
+ * 
  */
 void add_column_hexa(FILE *f, ModelingData *modeling_data) {
+
+    fprintf(f, "---- COLUMN HEXA ----\n");
 
     typedef struct {
         int column;        // 柱コンクリート
@@ -478,7 +511,8 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         modeling_data->boundary_index[CENTER_Y],
         modeling_data->boundary_index[COLUMN_BEAM_Z]
     };
-    fprintf(f, "----lower column\n");
+
+    fprintf(f, "---- lower\n");
     generate_hexa(
         f,
         coordinates,
@@ -534,6 +568,7 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         element_set = (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1);
         print_ETYP(f, start_elmemnt_index, end_element_index, element_increment[DIR_Y], typh.column_cover, element_increment[DIR_Z], element_set);
     }
+    fprintf(f, "\n");
 
     // 柱、上部 -----------------------------------------------------
     int start_node_index = modeling_data->column_hexa.head.node + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 2) * node_increment[DIR_Z];
@@ -542,7 +577,7 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     start[2] = modeling_data->boundary_index[BEAM_COLUMN_Z];
     end[2] = modeling_data->boundary_index[COLUMN_END_Z];
 
-    fprintf(f, "----upper column\n");
+    fprintf(f, "---- upper\n");
     generate_hexa(f, coordinates, start_node_index, start_elmemnt_index, start, end, node_increment, element_increment, typh.column);
 
     // 治具要素番号
@@ -582,18 +617,30 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         element_set = (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1);
         print_ETYP(f, start_elmemnt_index, end_element_index, element_increment[DIR_Y], typh.column_cover, element_increment[DIR_Z], element_set);
     }
+    fprintf(f, "\n");
 
     // 接合部 -----------------------------------------------------
+    /**
+     * 1,節点定義
+     * 
+     * 2,要素定義
+     * - 上下端面を除いた接合部(接合部の要素がz方向に2つしかない場合、要素定義なし。)
+     * - 上下端
+     * 
+     * 
+     */
+    // 接合部始めの節点番号(下柱上端)
     const int joint_origin_node = start_node_index = 
         modeling_data->column_hexa.head.node +
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z]) * node_increment[DIR_Z];
     const int joint_origin_elememnt =
         modeling_data->column_hexa.head.element +
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z]) * element_increment[DIR_Z];
-    // 接合部、左
+    
+    // 接合部 上下端を除いた節点
+    // 右
+    fprintf(f, "---- joint node\n");
     start_node_index = joint_origin_node + 2 * node_increment[DIR_Z];
-    start_elmemnt_index = joint_origin_elememnt + element_increment[DIR_Z];
-
     start[0] = modeling_data->boundary_index[BEAM_COLUMN_X];
     start[1] = modeling_data->boundary_index[COLUMN_SURFACE_START_Y];
     start[2] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 1;
@@ -601,34 +648,90 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     end[0] = modeling_data->boundary_index[COLUMN_CENTER_X];
     end[1] = modeling_data->boundary_index[CENTER_Y];
     end[2] = modeling_data->boundary_index[BEAM_COLUMN_Z] - 1;
-    
-    fprintf(f, "----joint left\n");
-    generate_hexa(f, coordinates, start_node_index, start_elmemnt_index, start, end, node_increment, element_increment, typh.joint_inner);
-    
-    // 接合部、右
-    start_node_index += (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * modeling_data->column_hexa.increment[DIR_X].node;
-    start_elmemnt_index += (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * modeling_data->column_hexa.increment[DIR_X].element;
-    start[0] = modeling_data->boundary_index[COLUMN_CENTER_X];
-    start[1] = modeling_data->boundary_index[COLUMN_SURFACE_START_Y];
-    start[2] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 1;
-    
-    end[0] = modeling_data->boundary_index[COLUMN_BEAM_X];
-    end[1] = modeling_data->boundary_index[CENTER_Y];
-    end[2] = modeling_data->boundary_index[BEAM_COLUMN_Z] - 1;
-    fprintf(f, "----joint right\n");
-    generate_hexa(f, coordinates, start_node_index, start_elmemnt_index, start, end, node_increment, element_increment, typh.joint_inner);
 
-    // 柱と接合部の上下境界 節点
+    plot_node(
+        f,
+        coordinates,
+        start_node_index,
+        start,
+        end,
+        node_increment
+    );
+
+    // 左
+    start_node_index += (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * modeling_data->column_hexa.increment[DIR_X].node;
+    start[0] = modeling_data->boundary_index[COLUMN_CENTER_X];
+    end[0] = modeling_data->boundary_index[COLUMN_BEAM_X];
+    
+    plot_node(
+        f,
+        coordinates,
+        start_node_index,
+        start,
+        end,
+        node_increment
+    );
+
+    // 柱と接合部の上下境界面の節点
     start_node_index = modeling_data->column_hexa.head.node + (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 1) * modeling_data->column_hexa.increment[2].node;
-    fprintf(f, "----boundary lower node\n");
+    fprintf(f, "---- joint lower node\n");
     column_joint_boundary_node(f, coordinates, node_increment, modeling_data->boundary_index, start_node_index, COLUMN_BEAM_Z);
     start_node_index = modeling_data->column_hexa.head.node + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 1) * modeling_data->column_hexa.increment[2].node;
-    fprintf(f, "----boundary upper node\n");
+    fprintf(f, "---- joint upper node\n");
     column_joint_boundary_node(f, coordinates, node_increment, modeling_data->boundary_index, start_node_index, BEAM_COLUMN_Z);
 
-    // 柱と接合部の境界
-    // 上下、内部要素
-    // 直交梁フランジ
+    // 接合部 上下端を除いた要素
+    // 接合部のz方向要素数が2以下の場合、要素を定義しない
+    if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+        for(int i = 0; i < 2; i++) {
+            switch (i) {
+            case 0:
+                // 接合部、左
+                fprintf(f, "---- joint left element\n");
+                start_node_index = joint_origin_node + 2 * node_increment[DIR_Z];
+                start_elmemnt_index = joint_origin_elememnt + element_increment[DIR_Z];
+
+                start[0] = modeling_data->boundary_index[BEAM_COLUMN_X];
+                start[1] = modeling_data->boundary_index[COLUMN_SURFACE_START_Y];
+                start[2] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 1;
+
+                end[0] = modeling_data->boundary_index[COLUMN_CENTER_X];
+                end[1] = modeling_data->boundary_index[CENTER_Y];
+                end[2] = modeling_data->boundary_index[BEAM_COLUMN_Z] - 1;
+                break;
+            case 1:
+                // 接合部、右
+                fprintf(f, "---- joint right element\n");
+                start_node_index += (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * modeling_data->column_hexa.increment[DIR_X].node;
+                start_elmemnt_index += (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * modeling_data->column_hexa.increment[DIR_X].element;
+                start[0] = modeling_data->boundary_index[COLUMN_CENTER_X];
+                end[0] = modeling_data->boundary_index[COLUMN_BEAM_X];
+                break;
+            default:
+                // 例外
+                break;
+            }
+
+            int delt;
+            //要素定義
+            print_HEXA_increment(f, start_elmemnt_index, start_node_index, node_increment, typh.joint_inner);
+            //要素コピー
+            //x
+            print_COPYELM(f, start_elmemnt_index, 0, 0, element_increment[0], node_increment[0], end[0] - start[0] - 1);
+            //y
+            delt = (end[0] - start[0] - 1) * element_increment[0];
+            print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + delt, element_increment[0], element_increment[1], node_increment[1], end[1] - start[1] - 1);
+            //z
+            for(int i = 0; i < end[1] - start[1]; i++)
+            {
+                print_COPYELM(f, start_elmemnt_index + element_increment[1] * i, start_elmemnt_index + delt + element_increment[1] * i, element_increment[0], element_increment[2], node_increment[2], end[2] - start[2] - 1);
+            }
+            fprintf(f, "\n");
+        }
+    }
+    
+    // 接合部の上下面
+    // 内部要素 - 直交梁フランジ
     start_node_index =
         modeling_data->column_hexa.head.node +
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 1) * modeling_data->column_hexa.increment[2].node +
@@ -648,7 +751,7 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z]) * modeling_data->column_hexa.increment[2].element +
         (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * modeling_data->column_hexa.increment[0].element;
     
-    fprintf(f, "----boundary orthogonal element\n");
+    fprintf(f, "---- boundary inner orthogonal element\n");
     for(int i = start_elmemnt_index; i <= end_element_index;) {
         print_HEXA_increment(f, i, start_node_index, node_increment, typh.joint_inner);
         int set = modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1;
@@ -686,8 +789,8 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         modeling_data->column_hexa.head.element +
         (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z]) * modeling_data->column_hexa.increment[2].element +
         (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1) * modeling_data->column_hexa.increment[DIR_Y].element;
-    fprintf(f, "\n----boundary beam element\n"); 
-
+    
+    fprintf(f, "\n---- boundary beam element\n"); 
     for(int i = start_elmemnt_index; i <= end_element_index;) {
         // 左側
         print_HEXA_increment(f, i, start_node_index, node_increment, typh.joint_inner);
@@ -720,8 +823,8 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
         i += element_increment[DIR_Y];
     }
 
-    fprintf(f, "\n---- edge 1\n");
     // 直交梁、下左
+    fprintf(f, "\n---- edge 1\n");
     start_node_index = joint_origin_node +
         (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X];
     start_elmemnt_index = joint_origin_elememnt + 
@@ -990,6 +1093,7 @@ void add_column_hexa(FILE *f, ModelingData *modeling_data) {
     element_set = modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1;
     print_COPYELM(f, pre_element, pre_element + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
     print_COPYELM(f, start_elmemnt_index, start_elmemnt_index + element_diff, element_increment[DIR_X], element_increment[DIR_Y], node_increment[DIR_Y], element_set);
+    fprintf(f, "\n");
 
     // 接合部外部要素、要素番号
     // 左
@@ -1053,7 +1157,8 @@ int search_column_node(int column_head, int increment[], int boundary_index[], i
 /**
  * 柱主筋
  */
-void add_reber(FILE *f, ModelingData *modeling_data) {
+void add_reber_fiber_line(FILE *f, ModelingData *modeling_data) {
+    fprintf(f, "---- REBAR FIBER LINE ----\n");
     // ポインタ配列に各方向を格納
     NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
@@ -1096,10 +1201,12 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
         int column_node = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
         print_LINE_increment(f, line_start_element, start_node, column_node, modeling_data->rebar_fiber->increment.node);
         element_set = (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] - 1);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_line.increment.element, modeling_data->rebar_fiber->increment.node, element_set);
+        if(element_set > 0) {
+            print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_line.increment.element, modeling_data->rebar_fiber->increment.node, element_set);
+        }
+        // 接合部下境界面
         start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z];
         end[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
-        // 下境界面
         line_start_element =
             modeling_data->rebar_line.head.element +
             (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z]) * modeling_data->rebar_line.increment.element +
@@ -1116,24 +1223,28 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
         };
         print_LINE_node(f, line_start_element, line_node);
         // 接合部内
-        start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
-        end[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 3;
-        line_start_element =
-            modeling_data->rebar_line.head.element +
-            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_line.increment.element +
-            i * modeling_data->rebar_line.occupied_indices_single.element;
-        line_node[0] = modeling_data->rebar_fiber->head.node +
-            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber->increment.node +
-            i * modeling_data->rebar_fiber->occupied_indices_single.node;
-        line_node[1] = modeling_data->rebar_fiber->head.node +
-            (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 2) * modeling_data->rebar_fiber->increment.node +
-            i * modeling_data->rebar_fiber->occupied_indices_single.node,
-        line_node[2] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
-        line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
-        print_LINE_node(f, line_start_element, line_node);
-        element_set = (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
-        // 上境界面
+        if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2 ) {
+            start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
+            end[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 3;
+            line_start_element =
+                modeling_data->rebar_line.head.element +
+                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_line.increment.element +
+                i * modeling_data->rebar_line.occupied_indices_single.element;
+            line_node[0] = modeling_data->rebar_fiber->head.node +
+                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 1) * modeling_data->rebar_fiber->increment.node +
+                i * modeling_data->rebar_fiber->occupied_indices_single.node;
+            line_node[1] = modeling_data->rebar_fiber->head.node +
+                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[JIG_COLUMN_Z] + 2) * modeling_data->rebar_fiber->increment.node +
+                i * modeling_data->rebar_fiber->occupied_indices_single.node,
+            line_node[2] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
+            line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
+            print_LINE_node(f, line_start_element, line_node);
+            element_set = (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
+            if(element_set > 0) {
+                print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
+            }
+        }
+        // 接合部上境界面
         start[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z];
         end[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z] + 2;
         line_start_element =
@@ -1166,17 +1277,19 @@ void add_reber(FILE *f, ModelingData *modeling_data) {
         line_node[3] = search_column_node(modeling_data->column_hexa.head.node, column_increment, modeling_data->boundary_index, end[DIR_X], end[DIR_Y], end[DIR_Z]);
         print_LINE_node(f, line_start_element, line_node);
         element_set = (modeling_data->boundary_index[COLUMN_JIG_Z] - modeling_data->boundary_index[BEAM_COLUMN_Z] - 1);
-        print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
+        if(element_set > 0) {
+            print_COPYELM(f, line_start_element, 0, 0, modeling_data->rebar_fiber->increment.element, modeling_data->rebar_fiber->increment.node, element_set);
+        }
+        fprintf(f, "\n");
     }
     fprintf(f, "\n");
 }
 
-
-
 /**
- * 接合部フィルム要素
+ * 接合部四辺形要素
  */
 void add_joint_quad(FILE *f, ModelingData *modeling_data) {
+    fprintf(f, "---- JOINT QUAD ----\n");
     int typq[3] = {
         8,
         5,
@@ -1197,22 +1310,26 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
         modeling_data->joint_quad.increment_element[DIR_Z]
     };
 
-    fprintf(f, "---- joint quad\n");
+    
     // yz面 支圧板、ふさぎ板、直交梁ウェブ ---------------------------------------------------------
     fprintf(f, "---- yz\n");
     for(int i = 0; i < 3; i++) {
         BoundaryType boundary_type;
         switch (i) {
         case 0:
+            // ふさぎ板
             boundary_type = BEAM_COLUMN_X;
             break;
         case 1:
+            // 直交梁ウェブ
             boundary_type = COLUMN_CENTER_X;
             break;
         case 2:
+            // ふさぎ板
             boundary_type = COLUMN_BEAM_X;
             break;
         default:
+            // 例外
             boundary_type = -1;
             break;
         }
@@ -1229,7 +1346,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             modeling_data->boundary_index[CENTER_Y],
             modeling_data->boundary_index[BEAM_COLUMN_Z]
         };
-        fprintf(f, "---- quad\n");
+        // 節点定義
         plot_node(f, coordinates, start_node, start, end, node_increment);
         int start_element =
             modeling_data->joint_quad.head.element +
@@ -1248,8 +1365,305 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1
         );
         fprintf(f, "\n");
-        // フィルム要素、ふさぎ板
-        fprintf(f, "---- film\n");
+    }
+
+    // xz面 支圧板、ふさぎ板、直交梁ウェブ ---------------------------------------------------------
+    fprintf(f, "---- zx\n");
+    int typq_[2]= {
+        9,
+        2
+    };
+    for(int i = 0; i < 2; i++) {
+        BoundaryType boundary_type;
+        switch (i) {
+        case 0:
+            // 手前ふさぎ板
+            boundary_type = COLUMN_SURFACE_START_Y;
+            break;
+        case 1:
+            // 梁ウェブ
+            boundary_type = CENTER_Y;
+            break;
+        default:
+            boundary_type = -1;
+            break;
+        }
+        int start_node =
+            modeling_data->joint_quad.head.node +
+            node_increment[DIR_X] +
+            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
+        int start[3] = {
+            modeling_data->boundary_index[BEAM_COLUMN_X] + 1,
+            modeling_data->boundary_index[boundary_type],
+            modeling_data->boundary_index[COLUMN_BEAM_Z]
+        };
+        int end[3] = {
+            modeling_data->boundary_index[COLUMN_CENTER_X] - 1,
+            modeling_data->boundary_index[boundary_type],
+            modeling_data->boundary_index[BEAM_COLUMN_Z]
+        };
+        // 節点定義 - 左
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
+            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
+        start[DIR_X] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
+        end[DIR_X] = modeling_data->boundary_index[COLUMN_BEAM_X] - 1;
+        // 節点定義 - 右
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
+        int start_element =
+            modeling_data->joint_quad.head.element +
+            element_increment[DIR_X] +
+            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + i) * element_increment[DIR_Y] +
+            element_increment[DIR_Z];
+        print_QUAD_increment(f, start_element, start_node, node_increment, DIR_Z, DIR_X, typq_[i]);
+        print_COPYELM(f, start_element, 0, 0, element_increment[DIR_X], node_increment[DIR_X], modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1);
+        print_COPYELM(
+            f,
+            start_element,
+            start_element + (modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[DIR_X],
+            element_increment[DIR_X],
+            element_increment[DIR_Z],
+            node_increment[DIR_Z],
+            modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1
+        );
+        fprintf(f, "\n");
+    }
+    
+    // xy平面 フランジ ---------------------------------------------------------
+    fprintf(f, "---- xy\n");
+    int cros_typq_[2] = {
+        7,
+        6
+    };
+    int _typq_[2] = {
+        4,
+        3
+    };
+    for(int i = 0; i < 2; i++) {
+        BoundaryType z_boundary = COLUMN_BEAM_Z;
+        switch (i) {
+        case 0:
+            // 下
+            z_boundary = COLUMN_BEAM_Z;
+            break;
+        case 1:
+            // 上
+            z_boundary = BEAM_COLUMN_Z;
+            break;
+        default:
+            // 例外
+            break;
+        }
+
+        int start[3] = {
+            modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X],
+            modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1,
+            modeling_data->boundary_index[z_boundary]
+        };
+        int end[3] = {
+            modeling_data->boundary_index[COLUMN_CENTER_X] - 1,
+            modeling_data->boundary_index[COLUMN_BEAM_Y] - 1,
+            modeling_data->boundary_index[z_boundary]
+        };
+        int start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+            node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+
+        // 節点定義 - 直交フランジ
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
+            node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start[0] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
+        end[0] = modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X];
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+
+        // 節点定義 - 梁フランジ
+        start_node =
+            modeling_data->joint_quad.head.node +
+            node_increment[DIR_X] +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y]) *node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start[0] = modeling_data->boundary_index[BEAM_COLUMN_X] + 1;
+        start[1] = modeling_data->boundary_index[COLUMN_BEAM_Y];
+        end[0] = modeling_data->boundary_index[COLUMN_CENTER_X] - 1;
+        end[1] = modeling_data->boundary_index[CENTER_Y] - 1;
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y]) *node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start[0] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
+        start[1] = modeling_data->boundary_index[COLUMN_BEAM_Y];
+        end[0] = modeling_data->boundary_index[COLUMN_BEAM_X] - 1;
+        end[1] = modeling_data->boundary_index[CENTER_Y] - 1;
+        plot_node(f, coordinates, start_node, start, end, node_increment);
+
+        // 要素定義 - 直交梁フランジ
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        int start_element =
+            modeling_data->joint_quad.head.element +
+            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * element_increment[DIR_X] +
+            element_increment[DIR_Y] +
+            i * (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
+        int node[4] = {
+            start_node,
+            start_node + node_increment[DIR_X],
+            start_node + node_increment[DIR_X] + node_increment[DIR_Y],
+            start_node + node_increment[DIR_Y]
+        };
+        print_QUAD_node(f, start_element, node, cros_typq_[i]);
+        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - 1));
+        print_COPYELM(
+            f,
+            start_element,
+            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - 1) * element_increment[0],
+            element_increment[0],
+            element_increment[DIR_Y],
+            node_increment[DIR_Y],
+            modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1
+        );
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start_element =
+            modeling_data->joint_quad.head.element +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 2) * element_increment[DIR_X] +
+            element_increment[DIR_Y] +
+            i * (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
+        node[0] = start_node;
+        node[1] = start_node + node_increment[DIR_X];
+        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
+        node[3] = start_node + node_increment[DIR_Y];
+        print_QUAD_node(f, start_element, node, cros_typq_[i]);
+        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1));
+        print_COPYELM(
+            f,
+            start_element,
+            start_element + (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1) * element_increment[0],
+            element_increment[0],
+            element_increment[DIR_Y],
+            node_increment[DIR_Y],
+            modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1
+        );
+        // 要素定義 - 梁フランジ
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start_element =
+            modeling_data->joint_quad.head.element +
+            element_increment[DIR_X] +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1) * element_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z] + i) * element_increment[DIR_Z];
+        node[0] = start_node;
+        node[1] = start_node + node_increment[DIR_X];
+        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
+        node[3] = start_node + node_increment[DIR_Y];
+        print_QUAD_node(f, start_element, node, _typq_[i]);
+        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1));
+        print_COPYELM(
+            f,
+            start_element,
+            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[0],
+            element_increment[0],
+            element_increment[DIR_Y],
+            node_increment[DIR_Y],
+            modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1
+        );
+        start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+        start_element =
+            modeling_data->joint_quad.head.element +
+            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 2) * element_increment[DIR_X] +
+            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1) * element_increment[DIR_Y] +
+            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z] + i) * element_increment[DIR_Z];
+        node[0] = start_node;
+        node[1] = start_node + node_increment[DIR_X];
+        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
+        node[3] = start_node + node_increment[DIR_Y];
+        print_QUAD_node(f, start_element, node, _typq_[i]);
+        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1));
+        print_COPYELM(
+            f,
+            start_element,
+            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[0],
+            element_increment[0],
+            element_increment[DIR_Y],
+            node_increment[DIR_Y],
+            modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1
+        );
+        fprintf(f, "\n");
+    }
+
+    fprintf(f, "\n");
+}
+
+/**
+ * 接合部FILM要素
+ */
+void add_joint_film(FILE *f, ModelingData *modeling_data) {
+    fprintf(f, "---- JOINT FILM ----\n");
+
+    int node_increment[3] = {
+        modeling_data->column_hexa.increment[DIR_X].node,
+        modeling_data->column_hexa.increment[DIR_Y].node,
+        modeling_data->column_hexa.increment[DIR_Z].node
+    };
+    int element_increment[3] = {
+        modeling_data->joint_quad.increment_element[DIR_X],
+        modeling_data->joint_quad.increment_element[DIR_Y],
+        modeling_data->joint_quad.increment_element[DIR_Z]
+    };
+
+    // yz面 支圧板、ふさぎ板、直交梁ウェブ ---------------------------------------------------------
+    fprintf(f, "---- yz\n");
+    for(int i = 0; i < 3; i++) {
+        BoundaryType boundary_type;
+        switch (i) {
+        case 0:
+            // ふさぎ板
+            boundary_type = BEAM_COLUMN_X;
+            break;
+        case 1:
+            // 直交梁ウェブ
+            boundary_type = COLUMN_CENTER_X;
+            break;
+        case 2:
+            // ふさぎ板
+            boundary_type = COLUMN_BEAM_X;
+            break;
+        default:
+            // 例外
+            boundary_type = -1;
+            break;
+        }
+        int start_node =
+            modeling_data->joint_quad.head.node +
+            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X];
+        int start[3] = {
+            modeling_data->boundary_index[boundary_type],
+            modeling_data->boundary_index[COLUMN_SURFACE_START_Y],
+            modeling_data->boundary_index[COLUMN_BEAM_Z]
+        };
+
         if(boundary_type == BEAM_COLUMN_X || boundary_type == COLUMN_BEAM_X) {
             int typf = 1;
             int element_diff = 0;
@@ -1257,7 +1671,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
                 element_diff = 3;
             }
             // 外部要素
-            // 柱付け根
+            // 柱付け根（必須）
             int film_index =
                 modeling_data->joint_film.head +
                 (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_COLUMN_X] + element_diff) * element_increment[DIR_X] +
@@ -1365,29 +1779,31 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
                 }
             }
             // 中央
-            start[DIR_Y] = modeling_data->boundary_index[COLUMN_SURFACE_START_Y];
-            start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
-            film_index =
-                modeling_data->joint_film.head +
-                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_COLUMN_X] + element_diff) * element_increment[DIR_X] +
-                element_increment[DIR_Y] +
-                3 * element_increment[DIR_Z];
-            face1[0] = start_node + node_increment[DIR_Z];
-            face1[1] = face1[0] + node_increment[DIR_Y];
-            face1[2] = face1[0] + node_increment[DIR_Z] + node_increment[DIR_Y];
-            face1[3] = face1[0] + node_increment[DIR_Z];
-            face2[0] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
-            face2[1] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y] + 1, start[DIR_Z]);
-            face2[2] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y] + 1, start[DIR_Z] + 1);
-            face2[3] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z] + 1);
-            if(boundary_type == COLUMN_BEAM_X) {
-                // 配列の要素順番を逆転して局所座標系のz軸方向を逆にする
-                reverse_array(face1, 4);
-                reverse_array(face2, 4);
+            if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+                start[DIR_Y] = modeling_data->boundary_index[COLUMN_SURFACE_START_Y];
+                start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
+                film_index =
+                    modeling_data->joint_film.head +
+                    (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_COLUMN_X] + element_diff) * element_increment[DIR_X] +
+                    element_increment[DIR_Y] +
+                    3 * element_increment[DIR_Z];
+                face1[0] = start_node + node_increment[DIR_Z];
+                face1[1] = face1[0] + node_increment[DIR_Y];
+                face1[2] = face1[0] + node_increment[DIR_Z] + node_increment[DIR_Y];
+                face1[3] = face1[0] + node_increment[DIR_Z];
+                face2[0] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
+                face2[1] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y] + 1, start[DIR_Z]);
+                face2[2] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y] + 1, start[DIR_Z] + 1);
+                face2[3] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z] + 1);
+                if(boundary_type == COLUMN_BEAM_X) {
+                    // 配列の要素順番を逆転して局所座標系のz軸方向を逆にする
+                    reverse_array(face1, 4);
+                    reverse_array(face2, 4);
+                }
+                print_FILM_node(f, film_index, face1, face2, typf);
+                print_COPYELM(f, film_index, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1);
+                print_COPYELM(f, film_index, film_index + element_increment[DIR_Y] * (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1), element_increment[DIR_Y], element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
             }
-            print_FILM_node(f, film_index, face1, face2, typf);
-            print_COPYELM(f, film_index, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1);
-            print_COPYELM(f, film_index, film_index + element_increment[DIR_Y] * (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1), element_increment[DIR_Y], element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
         }
         // 直交梁ウェブ
         if(boundary_type == COLUMN_CENTER_X) {
@@ -1427,19 +1843,19 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
     }
 
     // xz面 支圧板、ふさぎ板、直交梁ウェブ ---------------------------------------------------------
-    fprintf(f, "---- xz\n");
-    fprintf(f, "---- quad\n");
-    int typq_[2]= {
-        9,
-        2
-    };
+    fprintf(f, "---- zx\n");
     for(int i = 0; i < 2; i++) {
+        /**
+         * 左 -> 右
+         */
         BoundaryType boundary_type;
         switch (i) {
         case 0:
+            // 手前ふさぎ板
             boundary_type = COLUMN_SURFACE_START_Y;
             break;
         case 1:
+            // ウェブ
             boundary_type = CENTER_Y;
             break;
         default:
@@ -1455,19 +1871,11 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             modeling_data->boundary_index[boundary_type],
             modeling_data->boundary_index[COLUMN_BEAM_Z]
         };
-        int end[3] = {
-            modeling_data->boundary_index[COLUMN_CENTER_X] - 1,
-            modeling_data->boundary_index[boundary_type],
-            modeling_data->boundary_index[BEAM_COLUMN_Z]
-        };
-        plot_node(f, coordinates, start_node, start, end, node_increment);
         start_node =
             modeling_data->joint_quad.head.node +
             (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
             (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
         start[DIR_X] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
-        end[DIR_X] = modeling_data->boundary_index[COLUMN_BEAM_X] - 1;
-        plot_node(f, coordinates, start_node, start, end, node_increment);
         start_node =
             modeling_data->joint_quad.head.node +
             (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
@@ -1476,23 +1884,14 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             element_increment[DIR_X] +
             (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + i) * element_increment[DIR_Y] +
             element_increment[DIR_Z];
-        print_QUAD_increment(f, start_element, start_node, node_increment, DIR_Z, DIR_X, typq_[i]);
-        print_COPYELM(f, start_element, 0, 0, element_increment[DIR_X], node_increment[DIR_X], modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1);
-        print_COPYELM(
-            f,
-            start_element,
-            start_element + (modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[DIR_X],
-            element_increment[DIR_X],
-            element_increment[DIR_Z],
-            node_increment[DIR_Z],
-            modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1
-        );
-        fprintf(f, "---- film\n");
+        // 手前ふさぎ板
         if(boundary_type == COLUMN_SURFACE_START_Y) {
             int element_diff = 0;
+            // フル対応？
             if(boundary_type == COLUMN_SURFACE_END_Y) {
                 element_diff = 3;
             }
+            // 左
             // 外部要素
             fprintf(f, "---- out\n");
             start[DIR_X] = modeling_data->boundary_index[BEAM_COLUMN_X];
@@ -1578,6 +1977,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             face2[3] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X] + 1, start[DIR_Y], start[DIR_Z]);
             print_FILM_node(f, start_element, face1, face2, 1);
             // 内部
+            fprintf(f, "---- inner\n");
             int element_set = modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - 1;
             if(element_set > 0) {
                 start[DIR_X] = modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] + 1;
@@ -1613,76 +2013,81 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
                     );
                 }
             }
-            // 中央
-            start[DIR_X] = modeling_data->boundary_index[BEAM_COLUMN_X];
-            start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
-            start_element =
-                modeling_data->joint_film.head +
-                element_increment[DIR_X] +
-                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + element_diff) * element_increment[DIR_Y] +
-                3 * element_increment[DIR_Z];
-            start_node =
-                modeling_data->joint_quad.head.node +
-                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
-                node_increment[DIR_Z];
-            face1[0] = start_node;
-            face1[1] = face1[0] + node_increment[DIR_Z];
-            face1[2] = face1[0] + node_increment[DIR_X] + node_increment[DIR_Z];
-            face1[3] = face1[0] + node_increment[DIR_X];
-            face2[0] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
-            face2[1] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z] + 1);
-            face2[2] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X] + 1, start[DIR_Y], start[DIR_Z] + 1);
-            face2[3] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X] + 1, start[DIR_Y], start[DIR_Z]);
-            print_FILM_node(f, start_element, face1, face2, 1);
-            print_COPYELM(f, start_element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
-            print_COPYELM(
-                f,
-                start_element,
-                start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3) * element_increment[DIR_Z],
-                element_increment[DIR_Z],
-                element_increment[DIR_X],
-                node_increment[DIR_X],
-                modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1
-            );
-            // 内部
-            element_set = modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1;
-            if(element_set > 0) {
+            // 上下端を除いた要素
+            fprintf(f, "---- center\n");
+            if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+                start[DIR_X] = modeling_data->boundary_index[BEAM_COLUMN_X];
+                start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 2;
                 start_element =
                     modeling_data->joint_film.head +
-                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 3) * element_increment[DIR_X] +
+                    element_increment[DIR_X] +
                     (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + element_diff) * element_increment[DIR_Y] +
-                    2 * element_increment[DIR_Z];
+                    3 * element_increment[DIR_Z];
                 start_node =
                     modeling_data->joint_quad.head.node +
-                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-                    (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
-                int column_node =
-                    modeling_data->column_hexa.head.node +
-                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
-                    (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 1) * node_increment[DIR_Z];
+                    (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
+                    node_increment[DIR_Z];
                 face1[0] = start_node;
                 face1[1] = face1[0] + node_increment[DIR_Z];
                 face1[2] = face1[0] + node_increment[DIR_X] + node_increment[DIR_Z];
                 face1[3] = face1[0] + node_increment[DIR_X];
-                face2[0] = column_node;
-                face2[1] = column_node + node_increment[DIR_Z];
-                face2[2] = column_node + node_increment[DIR_X] + node_increment[DIR_Z];
-                face2[3] = column_node + node_increment[DIR_X];
+                face2[0] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z]);
+                face2[1] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X], start[DIR_Y], start[DIR_Z] + 1);
+                face2[2] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X] + 1, start[DIR_Y], start[DIR_Z] + 1);
+                face2[3] = search_column_node(modeling_data->column_hexa.head.node, node_increment, modeling_data->boundary_index, start[DIR_X] + 1, start[DIR_Y], start[DIR_Z]);
                 print_FILM_node(f, start_element, face1, face2, 1);
-                print_COPYELM(f, start_element, 0, 0, (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z], (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * node_increment[DIR_Z], 1);
-                if(element_set > 1) {
-                    print_COPYELM(
-                        f,
-                        start_element,
-                        start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
-                        (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
-                        element_increment[DIR_X],
-                        node_increment[DIR_X],
-                        element_set - 1
-                    );
+                print_COPYELM(f, start_element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
+                print_COPYELM(
+                    f,
+                    start_element,
+                    start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3) * element_increment[DIR_Z],
+                    element_increment[DIR_Z],
+                    element_increment[DIR_X],
+                    node_increment[DIR_X],
+                    modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1
+                );
+                // 内部
+                element_set = modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1;
+                if(element_set > 0) {
+                    start_element =
+                        modeling_data->joint_film.head +
+                        (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 3) * element_increment[DIR_X] +
+                        (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + element_diff) * element_increment[DIR_Y] +
+                        2 * element_increment[DIR_Z];
+                    start_node =
+                        modeling_data->joint_quad.head.node +
+                        (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+                        (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y];
+                    int column_node =
+                        modeling_data->column_hexa.head.node +
+                        (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
+                        (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 1) * node_increment[DIR_Z];
+                    face1[0] = start_node;
+                    face1[1] = face1[0] + node_increment[DIR_Z];
+                    face1[2] = face1[0] + node_increment[DIR_X] + node_increment[DIR_Z];
+                    face1[3] = face1[0] + node_increment[DIR_X];
+                    face2[0] = column_node;
+                    face2[1] = column_node + node_increment[DIR_Z];
+                    face2[2] = column_node + node_increment[DIR_X] + node_increment[DIR_Z];
+                    face2[3] = column_node + node_increment[DIR_X];
+                    print_FILM_node(f, start_element, face1, face2, 1);
+                    print_COPYELM(f, start_element, 0, 0, (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z], (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * node_increment[DIR_Z], 1);
+                    if(element_set > 1) {
+                        print_COPYELM(
+                            f,
+                            start_element,
+                            start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
+                            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
+                            element_increment[DIR_X],
+                            node_increment[DIR_X],
+                            element_set - 1
+                        );
+                    }
                 }
             }
+            // 右
             // 境界
+            fprintf(f, "---- bou\n");
             start_element =
                 modeling_data->joint_film.head +
                 (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 2) * element_increment[DIR_X] +
@@ -1729,6 +2134,7 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             face2[3] = column_node + node_increment[DIR_X];
             print_FILM_node(f, start_element, face1, face2, 1);
             // 外部
+            fprintf(f, "---- out\n");
             start_element =
                 modeling_data->joint_film.head +
                 (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 3) * element_increment[DIR_X] +
@@ -1776,41 +2182,46 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             face2[3] = column_node + node_increment[DIR_X];
             print_FILM_node(f, start_element, face1, face2, 1);
             print_COPYELM(f, pre_element, start_element, start_element - pre_element, element_increment[DIR_X], node_increment[DIR_X], modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - 1);
+            
             // 中央
-            start_element =
-                modeling_data->joint_film.head +
-                (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 3) * element_increment[DIR_X] +
-                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + element_diff) * element_increment[DIR_Y] +
-                3 * element_increment[DIR_Z];
-            start_node =
-                modeling_data->joint_quad.head.node +
-                (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
-                node_increment[DIR_Z];
-            column_node =
-                modeling_data->column_hexa.head.node +
-                (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
-                (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 2) * node_increment[DIR_Z];
-            face1[0] = start_node;
-            face1[1] = face1[0] + node_increment[DIR_Z];
-            face1[2] = face1[0] + node_increment[DIR_X] + node_increment[DIR_Z];
-            face1[3] = face1[0] + node_increment[DIR_X];
-            face2[0] = column_node;
-            face2[1] = column_node + node_increment[DIR_Z];
-            face2[2] = column_node + node_increment[DIR_X] + node_increment[DIR_Z];
-            face2[3] = column_node + node_increment[DIR_X];
-            print_FILM_node(f, start_element, face1, face2, 1);
-            print_COPYELM(f, start_element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
-            print_COPYELM(
-                f,
-                start_element,
-                start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3) * element_increment[DIR_Z],
-                element_increment[DIR_Z],
-                element_increment[DIR_X],
-                node_increment[DIR_X],
-                modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1
-            );
+            fprintf(f, "---- center\n");
+            if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+                start_element =
+                    modeling_data->joint_film.head +
+                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 3) * element_increment[DIR_X] +
+                    (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + element_diff) * element_increment[DIR_Y] +
+                    3 * element_increment[DIR_Z];
+                start_node =
+                    modeling_data->joint_quad.head.node +
+                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
+                    (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
+                    node_increment[DIR_Z];
+                column_node =
+                    modeling_data->column_hexa.head.node +
+                    (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
+                    (modeling_data->boundary_index[COLUMN_BEAM_Z] - modeling_data->boundary_index[COLUMN_START_Z] + 2) * node_increment[DIR_Z];
+                face1[0] = start_node;
+                face1[1] = face1[0] + node_increment[DIR_Z];
+                face1[2] = face1[0] + node_increment[DIR_X] + node_increment[DIR_Z];
+                face1[3] = face1[0] + node_increment[DIR_X];
+                face2[0] = column_node;
+                face2[1] = column_node + node_increment[DIR_Z];
+                face2[2] = column_node + node_increment[DIR_X] + node_increment[DIR_Z];
+                face2[3] = column_node + node_increment[DIR_X];
+                print_FILM_node(f, start_element, face1, face2, 1);
+                print_COPYELM(f, start_element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3);
+                print_COPYELM(
+                    f,
+                    start_element,
+                    start_element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 3) * element_increment[DIR_Z],
+                    element_increment[DIR_Z],
+                    element_increment[DIR_X],
+                    node_increment[DIR_X],
+                    modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1
+                );
+            }
         }
+        
         if(boundary_type == CENTER_Y) {
             // ウェブ
             start_element =
@@ -1883,172 +2294,10 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             );
         }
     }
-    // xy平面
-    fprintf(f, "---- yz\n");
-    fprintf(f, "---- quad\n");
-    int cros_typq_[2] = {
-        7,
-        6
-    };
-    int _typq_[2] = {
-        4,
-        3
-    };
-    for(int i = 0; i < 2; i++) {
-        BoundaryType z_boundary = COLUMN_BEAM_Z;
-        if(i == 1) {
-            z_boundary = BEAM_COLUMN_Z;
-        }
-        int start[3] = {
-            modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X],
-            modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1,
-            modeling_data->boundary_index[z_boundary]
-        };
-        int end[3] = {
-            modeling_data->boundary_index[COLUMN_CENTER_X] - 1,
-            modeling_data->boundary_index[COLUMN_BEAM_Y] - 1,
-            modeling_data->boundary_index[z_boundary]
-        };
-        int start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-            node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        // 直交フランジ
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
-            node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start[0] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
-        end[0] = modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X];
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        // 梁フランジ
-        start_node =
-            modeling_data->joint_quad.head.node +
-            node_increment[DIR_X] +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y]) *node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start[0] = modeling_data->boundary_index[BEAM_COLUMN_X] + 1;
-        start[1] = modeling_data->boundary_index[COLUMN_BEAM_Y];
-        end[0] = modeling_data->boundary_index[COLUMN_CENTER_X] - 1;
-        end[1] = modeling_data->boundary_index[CENTER_Y] - 1;
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y]) *node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start[0] = modeling_data->boundary_index[COLUMN_CENTER_X] + 1;
-        start[1] = modeling_data->boundary_index[COLUMN_BEAM_Y];
-        end[0] = modeling_data->boundary_index[COLUMN_BEAM_X] - 1;
-        end[1] = modeling_data->boundary_index[CENTER_Y] - 1;
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        // 直交梁フランジ
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        int start_element =
-            modeling_data->joint_quad.head.element +
-            (modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 1) * element_increment[DIR_X] +
-            element_increment[DIR_Y] +
-            i * (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
-        int node[4] = {
-            start_node,
-            start_node + node_increment[DIR_X],
-            start_node + node_increment[DIR_X] + node_increment[DIR_Y],
-            start_node + node_increment[DIR_Y]
-        };
-        print_QUAD_node(f, start_element, node, cros_typq_[i]);
-        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - 1));
-        print_COPYELM(
-            f,
-            start_element,
-            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[COLUMN_ORTHOGONAL_BEAM_X] - 1) * element_increment[0],
-            element_increment[0],
-            element_increment[DIR_Y],
-            node_increment[DIR_Y],
-            modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1
-        );
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start_element =
-            modeling_data->joint_quad.head.element +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 2) * element_increment[DIR_X] +
-            element_increment[DIR_Y] +
-            i * (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
-        node[0] = start_node;
-        node[1] = start_node + node_increment[DIR_X];
-        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
-        node[3] = start_node + node_increment[DIR_Y];
-        print_QUAD_node(f, start_element, node, cros_typq_[i]);
-        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1));
-        print_COPYELM(
-            f,
-            start_element,
-            start_element + (modeling_data->boundary_index[ORTHOGONAL_BEAM_COLUMN_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1) * element_increment[0],
-            element_increment[0],
-            element_increment[DIR_Y],
-            node_increment[DIR_Y],
-            modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] - 1
-        );
-        // 梁フランジ
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start_element =
-            modeling_data->joint_quad.head.element +
-            element_increment[DIR_X] +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1) * element_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z] + i) * element_increment[DIR_Z];
-        node[0] = start_node;
-        node[1] = start_node + node_increment[DIR_X];
-        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
-        node[3] = start_node + node_increment[DIR_Y];
-        print_QUAD_node(f, start_element, node, _typq_[i]);
-        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1));
-        print_COPYELM(
-            f,
-            start_element,
-            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[0],
-            element_increment[0],
-            element_increment[DIR_Y],
-            node_increment[DIR_Y],
-            modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1
-        );
-        start_node =
-            modeling_data->joint_quad.head.node +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X]) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y]) * node_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start_element =
-            modeling_data->joint_quad.head.element +
-            (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] + 2) * element_increment[DIR_X] +
-            (modeling_data->boundary_index[COLUMN_BEAM_Y] - modeling_data->boundary_index[COLUMN_SURFACE_START_Y] + 1) * element_increment[DIR_Y] +
-            (modeling_data->boundary_index[z_boundary] - modeling_data->boundary_index[COLUMN_BEAM_Z] + i) * element_increment[DIR_Z];
-        node[0] = start_node;
-        node[1] = start_node + node_increment[DIR_X];
-        node[2] = start_node + node_increment[DIR_X] + node_increment[DIR_Y];
-        node[3] = start_node + node_increment[DIR_Y];
-        print_QUAD_node(f, start_element, node, _typq_[i]);
-        print_COPYELM(f, start_element, 0, 0, element_increment[0], node_increment[DIR_X], (modeling_data->boundary_index[COLUMN_BEAM_X] - modeling_data->boundary_index[COLUMN_CENTER_X] - 1));
-        print_COPYELM(
-            f,
-            start_element,
-            start_element + (modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X] - 1) * element_increment[0],
-            element_increment[0],
-            element_increment[DIR_Y],
-            node_increment[DIR_Y],
-            modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1
-        );
-    }
+
+    // xy平面 ---------------------------------------------------------
+    fprintf(f, "---- xy\n");
     // 上下フランジ、柱面
-    fprintf(f, "---- film\n");
     for(int i = 0; i < 2; i++) {
         BoundaryType boundary_type = COLUMN_BEAM_Z;
         if(i == 1) {
@@ -2160,7 +2409,6 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             node_increment[DIR_Y],
             modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1
         );
-
     }
 
     // 上下フランジ接合部面 - 境界
@@ -2481,7 +2729,6 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
             );
         }
     }   
-
 
     // 右
     quad_node =
@@ -2809,7 +3056,8 @@ void add_joint_quad(FILE *f, ModelingData *modeling_data) {
 
 
 void add_beam_hexa(FILE *f, ModelingData *modeling_data) {
-// ポインタ配列に各方向を格納
+    fprintf(f, "---- BEAM HEXA ----\n");
+    // ポインタ配列に各方向を格納
     NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
     int node_increment[3] = {
@@ -2834,7 +3082,7 @@ void add_beam_hexa(FILE *f, ModelingData *modeling_data) {
         modeling_data->boundary_index[CENTER_Y],
         modeling_data->boundary_index[BEAM_COLUMN_Z]
     };
-    fprintf(f, "----beam hexa\n");
+    
     generate_hexa(f, coordinates, modeling_data->beam.head.node, modeling_data->beam.head.element, start, end, node_increment, element_increment, 5);
     // 右 -----------------------------------------------------
     int start_node =
@@ -2853,7 +3101,7 @@ void add_beam_hexa(FILE *f, ModelingData *modeling_data) {
 
 void add_beam_quad(FILE *f, ModelingData *modeling_data) {
 
-    fprintf(f, "----beam quad\n");
+    fprintf(f, "---- BEAM QUAD ----\n");
     // ポインタ配列に各方向を格納
     NodeCoordinate* coordinates[3] = {modeling_data->x, modeling_data->y, modeling_data->z};
 
@@ -2869,47 +3117,50 @@ void add_beam_quad(FILE *f, ModelingData *modeling_data) {
     };
 
     // 節点定義
-    for(int i = 0; i < 2; i++) {
-        BoundaryType boundary_type = JIG_BEAM_X;
-        if(i == 1) {
-            boundary_type = COLUMN_BEAM_X;
-        }
-        // 下フランジ
-        int start_node =
-            modeling_data->beam.head.node +
-            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X];
-        int start[3] = {
-            modeling_data->boundary_index[boundary_type] + 1,
-            modeling_data->boundary_index[COLUMN_BEAM_Y],
-            modeling_data->boundary_index[COLUMN_BEAM_Z]
-        };
-        int end[3] = {
-            modeling_data->boundary_index[boundary_type + 1] - 1,
-            modeling_data->boundary_index[CENTER_Y],
-            modeling_data->boundary_index[COLUMN_BEAM_Z]
-        };
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        // 上フランジ
-        start_node =
-            modeling_data->beam.head.node +
-            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
-        start[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z];
-        end[DIR_Z] = start[DIR_Z];
-        plot_node(f, coordinates, start_node, start, end, node_increment);
-        
-        // ウェブ
-        start_node =
-            modeling_data->beam.head.node +
-            (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X] +
-            (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * node_increment[DIR_Y] +
-            node_increment[DIR_Z];
+    if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+        // 0 : 左, 1 : 右
+        for(int i = 0; i < 2; i++) {
+            BoundaryType boundary_type = JIG_BEAM_X;
+            if(i == 1) {
+                boundary_type = COLUMN_BEAM_X;
+            }
+            // 下フランジ
+            int start_node =
+                modeling_data->beam.head.node +
+                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X];
+            int start[3] = {
+                modeling_data->boundary_index[boundary_type] + 1,
+                modeling_data->boundary_index[COLUMN_BEAM_Y],
+                modeling_data->boundary_index[COLUMN_BEAM_Z]
+            };
+            int end[3] = {
+                modeling_data->boundary_index[boundary_type + 1] - 1,
+                modeling_data->boundary_index[CENTER_Y],
+                modeling_data->boundary_index[COLUMN_BEAM_Z]
+            };
+            plot_node(f, coordinates, start_node, start, end, node_increment);
+            // 上フランジ
+            start_node =
+                modeling_data->beam.head.node +
+                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X] +
+                (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+            start[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z];
+            end[DIR_Z] = start[DIR_Z];
+            plot_node(f, coordinates, start_node, start, end, node_increment);
+            
+            // ウェブ
+            start_node =
+                modeling_data->beam.head.node +
+                (modeling_data->boundary_index[boundary_type] - modeling_data->boundary_index[BEAM_START_X] + 1) * node_increment[DIR_X] +
+                (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * node_increment[DIR_Y] +
+                node_increment[DIR_Z];
 
-        start[DIR_Y] = modeling_data->boundary_index[CENTER_Y];
-        start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 1;
-        end[DIR_Y] = modeling_data->boundary_index[CENTER_Y];
-        end[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z] - 1;
-        plot_node(f, coordinates, start_node, start, end, node_increment);
+            start[DIR_Y] = modeling_data->boundary_index[CENTER_Y];
+            start[DIR_Z] = modeling_data->boundary_index[COLUMN_BEAM_Z] + 1;
+            end[DIR_Y] = modeling_data->boundary_index[CENTER_Y];
+            end[DIR_Z] = modeling_data->boundary_index[BEAM_COLUMN_Z] - 1;
+            plot_node(f, coordinates, start_node, start, end, node_increment);
+        }
     }
 
     // 接合部
@@ -2996,77 +3247,80 @@ void add_beam_quad(FILE *f, ModelingData *modeling_data) {
     }
 
     // 梁
-    for(int i = 0; i < 2; i++) {
-        int x_index = modeling_data->boundary_index[JIG_BEAM_X];
-        int x_copy_num = modeling_data->boundary_index[BEAM_COLUMN_X] - modeling_data->boundary_index[JIG_BEAM_X] - 2;
-        if(i == 1) {
-            x_index = modeling_data->boundary_index[COLUMN_BEAM_X] + 1;
-            x_copy_num = modeling_data->boundary_index[BEAM_JIG_X] - modeling_data->boundary_index[COLUMN_BEAM_X] - 2;
-        }
+    if(modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] > 2) {
+        for(int i = 0; i < 2; i++) {
+            int x_index = modeling_data->boundary_index[JIG_BEAM_X];
+            int x_copy_num = modeling_data->boundary_index[BEAM_COLUMN_X] - modeling_data->boundary_index[JIG_BEAM_X] - 2;
+            if(i == 1) {
+                x_index = modeling_data->boundary_index[COLUMN_BEAM_X] + 1;
+                x_copy_num = modeling_data->boundary_index[BEAM_JIG_X] - modeling_data->boundary_index[COLUMN_BEAM_X] - 2;
+            }
 
-        int element =
-            modeling_data->beam.head.element + x_index * element_increment[DIR_X];
+            int element =
+                modeling_data->beam.head.element + x_index * element_increment[DIR_X];
+                
+            int node[4] = {
+                modeling_data->beam.head.node + x_index * node_increment[DIR_X],
+                modeling_data->beam.head.node + (x_index + 1 ) * node_increment[DIR_X],
+                modeling_data->beam.head.node + (x_index + 1 ) * node_increment[DIR_X] + node_increment[DIR_Y],
+                modeling_data->beam.head.node + x_index * node_increment[DIR_X] + node_increment[DIR_Y],
+            };
+            print_QUAD_node(f, element, node, 4);
+            // y方向
+            print_COPYELM(f, element, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1);
+            // x方向
+            print_COPYELM(
+                f,
+                element,
+                element + (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1) * element_increment[DIR_Y],
+                element_increment[DIR_Y],
+                element_increment[DIR_X],
+                node_increment[DIR_X],
+                x_copy_num
+            );
             
-        int node[4] = {
-            modeling_data->beam.head.node + x_index * node_increment[DIR_X],
-            modeling_data->beam.head.node + (x_index + 1 ) * node_increment[DIR_X],
-            modeling_data->beam.head.node + (x_index + 1 ) * node_increment[DIR_X] + node_increment[DIR_Y],
-            modeling_data->beam.head.node + x_index * node_increment[DIR_X] + node_increment[DIR_Y],
-        };
-        print_QUAD_node(f, element, node, 4);
-        // y方向
-        print_COPYELM(f, element, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1);
-        // x方向
-        print_COPYELM(
-            f,
-            element,
-            element + (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1) * element_increment[DIR_Y],
-            element_increment[DIR_Y],
-            element_increment[DIR_X],
-            node_increment[DIR_X],
-            x_copy_num
-        );
-        
-        element += (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
-        for(int i = 0; i < 4; i++) {
-            node[i] += (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+            element += (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] + 1) * element_increment[DIR_Z];
+            for(int i = 0; i < 4; i++) {
+                node[i] += (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z]) * node_increment[DIR_Z];
+            }
+            print_QUAD_node(f, element, node, 3);
+            print_COPYELM(f, element, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1);
+            print_COPYELM(
+                f,
+                element,
+                element + (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1) * element_increment[DIR_Y],
+                element_increment[DIR_Y],
+                element_increment[DIR_X],
+                node_increment[DIR_X],
+                x_copy_num
+            );
+
+            element =
+                modeling_data->beam.head.element +
+                x_index * element_increment[DIR_X] +
+                (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * element_increment[DIR_Y] +
+                element_increment[DIR_Z];
+
+            node[0] =
+                modeling_data->beam.head.node + x_index * node_increment[DIR_X] +
+                (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * node_increment[DIR_Y];
+            node[1] = node[0] + node_increment[DIR_Z];
+            node[2] = node[0] + node_increment[DIR_X] + node_increment[DIR_Z];
+            node[3] = node[0] + node_increment[DIR_X];
+            print_QUAD_node(f, element, node, 1);
+            print_COPYELM(f, element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1);
+            print_COPYELM(
+                f,
+                element,
+                element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
+                element_increment[DIR_Z],
+                element_increment[DIR_X],
+                node_increment[DIR_X],
+                x_copy_num
+            );
         }
-        print_QUAD_node(f, element, node, 3);
-        print_COPYELM(f, element, 0, 0, element_increment[DIR_Y], node_increment[DIR_Y], modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1);
-        print_COPYELM(
-            f,
-            element,
-            element + (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y] - 1) * element_increment[DIR_Y],
-            element_increment[DIR_Y],
-            element_increment[DIR_X],
-            node_increment[DIR_X],
-            x_copy_num
-        );
-
-        element =
-            modeling_data->beam.head.element +
-            x_index * element_increment[DIR_X] +
-            (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * element_increment[DIR_Y] +
-            element_increment[DIR_Z];
-
-        node[0] =
-            modeling_data->beam.head.node + x_index * node_increment[DIR_X] +
-            (modeling_data->boundary_index[CENTER_Y] - modeling_data->boundary_index[COLUMN_BEAM_Y]) * node_increment[DIR_Y];
-        node[1] = node[0] + node_increment[DIR_Z];
-        node[2] = node[0] + node_increment[DIR_X] + node_increment[DIR_Z];
-        node[3] = node[0] + node_increment[DIR_X];
-        print_QUAD_node(f, element, node, 1);
-        print_COPYELM(f, element, 0, 0, element_increment[DIR_Z], node_increment[DIR_Z], modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1);
-        print_COPYELM(
-            f,
-            element,
-            element + (modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z] - 1) * element_increment[DIR_Z],
-            element_increment[DIR_Z],
-            element_increment[DIR_X],
-            node_increment[DIR_X],
-            x_copy_num
-        );
     }
+    fprintf(f, "\n");
 }
 
 
@@ -3074,6 +3328,7 @@ void add_beam_quad(FILE *f, ModelingData *modeling_data) {
  * 柱、梁を選択して端部をピン指示にする。
  */
 void set_pin(FILE *f, ModelingData *modeling_data, char parts) {
+    fprintf(f, "---- SET PIN ----\n");
     if(parts == 'b' || parts == 'B') {
         int start_node = modeling_data->beam.head.node;
         print_REST(
@@ -3099,9 +3354,11 @@ void set_pin(FILE *f, ModelingData *modeling_data, char parts) {
         printf("non\n");
         return ;
     }
+    fprintf(f, "\n");
 }
 
 void set_roller(FILE *f, ModelingData *modeling_data, char parts) {
+    fprintf(f, "---- SET ROLLER ----\n");
     if(parts == 'c' || parts == 'C') {
         // 柱、下端
         int center = modeling_data->boundary_index[COLUMN_CENTER_X] - modeling_data->boundary_index[BEAM_COLUMN_X];
@@ -3169,9 +3426,11 @@ void set_roller(FILE *f, ModelingData *modeling_data, char parts) {
         printf("non\n");
         return ;
     }
+    fprintf(f, "\n");
 }
 
 void fix_cut_surface(FILE *f, ModelingData *modeling_data) {
+    fprintf(f, "---- FIX CUT SURFACE ----\n");
     // 柱
     int start_node =
         modeling_data->column_hexa.head.node +
@@ -3233,6 +3492,7 @@ void fix_cut_surface(FILE *f, ModelingData *modeling_data) {
         modeling_data->column_hexa.increment[DIR_Z].node,
         modeling_data->boundary_index[BEAM_COLUMN_Z] - modeling_data->boundary_index[COLUMN_BEAM_Z]
     );
+    fprintf(f, "\n");
 }
 
 void get_load_node(ModelingData *modeling_data, int load_nodes[]) {
@@ -3347,17 +3607,7 @@ ModelingRcsResult modeling_rcs(const char *inputFileName, const char *outputFile
 
    /** todo
     * 
-    * modeling_dataに主筋位置を格納するときに左下を0番目に移動
-    *
-    * 接合部鋼板
-    * 
-    * film要素
-    * 
-    * 梁四辺形、六面体
-    * 
-    * 境界条件
-    * 
-    * 強制変位
+    * 主筋データの順序
     * 
     */
 
@@ -3412,18 +3662,22 @@ ModelingRcsResult modeling_rcs(const char *inputFileName, const char *outputFile
     get_load_node(modeling_data, load_nodes);
 
     // 解析制御データ
-    print_head_template(fout, 1, 1, 'x', 0, 'x');
-    // 柱六面体
+    print_head_template(fout, 10, load_nodes[1], 'x', load_nodes[1], 'x');
+
+    // 柱 - 六面体要素
     add_column_hexa(fout, modeling_data);
-    // 柱主筋
-    add_reber(fout, modeling_data);
-    //接合部四辺形要素
+
+    // 柱主筋 - 線材要素,LINE要素
+    add_reber_fiber_line(fout, modeling_data);
+
+    //接合部 - 四辺形要素
     add_joint_quad(fout, modeling_data);
+    //接合部 - FILM要素
+    add_joint_film(fout, modeling_data);
 
-    //梁六面体要素
+    //梁 - 六面体要素
     add_beam_hexa(fout, modeling_data);
-
-    //梁四辺形要素
+    //梁 - 四辺形要素
     add_beam_quad(fout, modeling_data);
 
     // 切断面拘束
